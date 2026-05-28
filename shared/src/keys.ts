@@ -56,4 +56,7 @@ export const redisKeys = {
 
   /** Set of all active worker IDs. */
   workerRegistry: `${PREFIX}:workers`,
+
+  /** PUB/SUB channel for real-time job events. */
+  events: `${PREFIX}:events`,
 } as const;

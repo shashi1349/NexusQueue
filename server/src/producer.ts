@@ -7,6 +7,7 @@ import {
   type EnqueueOptions,
   type Pool,
 } from '@nexusqueue/shared';
+import type { NexusEventBus } from './websocket.js';
 
 /**
  * The Producer SDK.
@@ -44,6 +45,7 @@ import {
 export interface ProducerDeps {
   redis: Redis;
   pg: Pool;
+  eventBus?: NexusEventBus | undefined;
 }
 
 const DEFAULT_QUEUE = 'default';
@@ -158,6 +160,17 @@ export class Producer {
     // Set idempotency key with 24h TTL after successful enqueue.
     if (options.idempotencyKey) {
       await this.deps.redis.set(redisKeys.idempotency(options.idempotencyKey), id, 'EX', 86400);
+    }
+
+    // Emit job.created event if event bus is available.
+    if (this.deps.eventBus) {
+      await this.deps.eventBus.publish({
+        type: 'job.created',
+        jobId: id,
+        jobName,
+        queueName,
+        timestamp: Date.now(),
+      });
     }
 
     return id;

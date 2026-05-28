@@ -1,0 +1,43 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Extended REST API endpoints for the observability dashboard (Part A) plus WebSocket event bus (Part B), CORS middleware, and phase5 tests.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1: Install new server dependencies. Add 'ws', '@types/ws', and 'cors', '@types/cors' to server/package.json. Run npm install from root.",
+    "Step 2: Add CORS middleware to server/src/index.ts. Import cors from 'cors' and apply app.use(cors()) before the JSON parser. This allows the dashboard (running on a different port) to access the API.",
+    "Step 3: Create server/src/websocket.ts - WebSocket event bus module. Create an EventEmitter-based event bus (NexusEventBus class) that: (a) accepts an HTTP server instance and attaches a ws.WebSocketServer to it, (b) subscribes to Redis PUB/SUB channel 'nexus:events' and forwards messages to all connected WS clients, (c) exposes a publish() method that publishes events to the Redis channel, (d) defines event types: job.created, job.started, job.completed, job.failed, job.dlq, job.retried. Each event payload: { type, jobId, jobName, queueName, timestamp, ...extra }. Export the NexusEventBus class and a singleton-style createEventBus() factory.",
+    "Step 4: Wire WebSocket into server/src/index.ts. After app.listen(), get the HTTP server reference and pass it to createEventBus() along with a Redis subscriber client. Store the event bus instance so routes can access it.",
+    "Step 5: Update server/src/routes.ts buildRouter deps to accept redis (Redis client) in addition to producer and pg. Add the following new routes:",
+    "Step 5a: GET /queues - List all queues with stats. Use SMEMBERS on redisKeys.queueRegistry to get queue names. For each queue: LLEN on redisKeys.queue(name) + redisKeys.queuePriority(name, 'high') + redisKeys.queuePriority(name, 'low') for pending count. SMEMBERS on redisKeys.workerRegistry then LLEN on redisKeys.processing(workerId) filtered by queue for active count. Query Postgres COUNT(*) grouped by status WHERE queue_name = name for completed/failed/dlq. Response: { queues: [{ name, pending, active, completed, failed, dlq }] }",
+    "Step 5b: GET /queues/:name/jobs - List jobs for a queue with status filter. Query params: ?status=pending|active|completed|failed|dlq&limit=50&offset=0. Query Postgres: SELECT * FROM jobs WHERE queue_name = $1 AND (status = $2 OR $2 IS NULL) ORDER BY created_at DESC LIMIT $3 OFFSET $4. Also COUNT(*) for total. Response: { jobs: Job[], total: number }",
+    "Step 5c: POST /jobs/:id/retry - Retry a failed/dlq job. Load job from Postgres (getJob), verify status is 'failed' or 'dlq'. Reset attempts to 0, set status to 'pending' in Postgres (markJobPendingForRetry). In Redis: HSET job hash status=pending, attempts=0, startedAt='', completedAt='', errorMessage=''. Remove from DLQ list (LREM). Push to appropriate queue list based on priority. Publish job.retried event via event bus. Response: { success: true }",
+    "Step 5d: GET /workers - List all active workers with metadata. SMEMBERS on redisKeys.workerRegistry. For each worker ID: HGETALL on redisKeys.workerMeta(id). Also get heartbeat value from redisKeys.heartbeat(id). Response: { workers: [{ id, status, queue, startedAt, currentJobs, lastHeartbeat }] }",
+    "Step 5e: GET /queues/:name/dlq - List DLQ jobs for a queue. LRANGE on redisKeys.dlq(name) 0 -1 to get job IDs. For each: HGETALL on redisKeys.job(id) to get job data. Response: { jobs: Job[] }",
+    "Step 5f: POST /queues/:name/dlq/requeue - Bulk requeue DLQ jobs. Body: { jobIds: string[] } or { all: true }. If all=true, LRANGE entire DLQ list. For each job: reset attempts to 0, set status pending in Redis hash, remove from DLQ list (LREM), push to queue list based on priority, update Postgres (markJobPendingForRetry). Publish job.retried event for each. Response: { requeued: number }",
+    "Step 6: Update server/src/index.ts to pass the redis client to buildRouter (update the deps object).",
+    "Step 7: Emit events from producer. In server/src/producer.ts, add an optional eventBus parameter to ProducerDeps. After successful enqueue, if eventBus is provided, call eventBus.publish({ type: 'job.created', jobId, jobName, queueName, timestamp: Date.now() }).",
+    "Step 8: Add a redisKeys.events constant to shared/src/keys.ts for the PUB/SUB channel name: 'nexus:events'. Export it.",
+    "Step 9: Create tests/phase5.test.ts with comprehensive tests for the new REST endpoints. Follow the same pattern as phase1.test.ts (ioredis-mock + mock pg Pool). Test cases: (a) GET /queues returns queue list with correct counts, (b) GET /queues/:name/jobs returns filtered jobs from Postgres, (c) POST /jobs/:id/retry resets job state and re-enqueues, (d) GET /workers returns worker metadata, (e) GET /queues/:name/dlq returns DLQ jobs, (f) POST /queues/:name/dlq/requeue bulk requeues jobs. For route testing, use supertest-style approach or directly call the route handler functions. Since Express is already a dep, create a mini Express app in tests with the router mounted, then use Node's http module or direct handler invocation.",
+    "Step 10: Run npm run build && npm test to verify all 61 existing tests still pass plus new phase5 tests pass."
+  ],
+  "acceptance_criteria": [
+    "GET /queues returns { queues: [...] } with name, pending, active, completed, failed, dlq fields for each queue",
+    "GET /queues/:name/jobs returns { jobs: Job[], total: number } with filtering by status, limit, offset",
+    "POST /jobs/:id/retry returns 400 if job not found or not in failed/dlq status, 200 with { success: true } on success",
+    "GET /workers returns { workers: [...] } with id, status, queue, startedAt, currentJobs, lastHeartbeat",
+    "GET /queues/:name/dlq returns { jobs: [...] } from Redis DLQ list",
+    "POST /queues/:name/dlq/requeue requeues specified jobs and returns { requeued: number }",
+    "WebSocket server attaches to HTTP server and broadcasts events from Redis PUB/SUB",
+    "CORS headers are present on API responses",
+    "All 61 existing tests continue to pass",
+    "New phase5 tests pass covering the response shapes of all new endpoints",
+    "npm run build succeeds with no TypeScript errors"
+  ],
+  "verification": [
+    "Run 'npm run build' from /projects/sandbox/NexusQueue and confirm exit code 0",
+    "Run 'npm test' from /projects/sandbox/NexusQueue and confirm all tests pass including new phase5 tests"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

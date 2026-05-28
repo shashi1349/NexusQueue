@@ -1,0 +1,50 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "React Dashboard workspace (Part C) - a new dashboard/ workspace with React 18, TypeScript, Vite, Tailwind CSS, Recharts, and react-router-dom. Includes all pages/components for queue overview, live job stream, job detail, DLQ inspector, throughput chart, and workers panel.",
+  "status": "pending",
+  "steps": [
+    "Step 1: Create the dashboard/ directory structure as specified. Create dashboard/package.json with name '@nexusqueue/dashboard', type 'module', dependencies: react, react-dom, react-router-dom, recharts. devDependencies: @types/react, @types/react-dom, typescript, vite, @vitejs/plugin-react, tailwindcss, postcss, autoprefixer. Scripts: dev (vite), build (vite build), preview (vite preview).",
+    "Step 2: Add 'dashboard' to root package.json workspaces array. Run npm install from root to link the new workspace.",
+    "Step 3: Create dashboard/tsconfig.json extending ../tsconfig.base.json with JSX support (jsx: 'react-jsx'), rootDir: './src', outDir: './dist', additional lib: ['DOM', 'DOM.Iterable']. Exclude node_modules.",
+    "Step 4: Create dashboard/vite.config.ts with React plugin, server port 5173, proxy /api and /ws to localhost:3000.",
+    "Step 5: Create dashboard/tailwind.config.js scanning ./src/**/*.{ts,tsx} for content. Create dashboard/postcss.config.js with tailwindcss and autoprefixer plugins.",
+    "Step 6: Create dashboard/index.html - standard Vite HTML entry point referencing /src/main.tsx.",
+    "Step 7: Create dashboard/src/main.tsx - React 18 createRoot, render <App /> wrapped in BrowserRouter.",
+    "Step 8: Create dashboard/src/types.ts - frontend type definitions: QueueStats (name, pending, active, completed, failed, dlq), JobEvent (type, jobId, jobName, queueName, timestamp, duration?), WorkerInfo (id, status, queue, startedAt, currentJobs, lastHeartbeat), Job (matching shared/src/types.ts).",
+    "Step 9: Create dashboard/src/api.ts - fetch helpers for all REST endpoints: getQueues(), getQueueJobs(name, opts), getJob(id), retryJob(id), getWorkers(), getDlqJobs(queueName), requeueDlq(queueName, jobIds | all). Use VITE_API_URL env var (default http://localhost:3000).",
+    "Step 10: Create dashboard/src/ws.ts - WebSocket connection manager. Connect to VITE_WS_URL (default ws://localhost:3000). Auto-reconnect on close with exponential backoff. Expose subscribe(callback) to register event listeners. Parse incoming JSON messages as JobEvent.",
+    "Step 11: Create dashboard/src/App.tsx - main app component with React Router routes: / -> Dashboard page, /queues/:name -> QueueDetail page. Import and apply Tailwind CSS.",
+    "Step 12: Create dashboard/src/components/Layout.tsx - page layout with nav header (NexusQueue branding, nav links to Dashboard, Workers). Renders children in main content area.",
+    "Step 13: Create dashboard/src/components/QueueCard.tsx - card component showing queue name and metrics (pending, active, completed, failed, dlq). Clickable to navigate to /queues/:name.",
+    "Step 14: Create dashboard/src/pages/Dashboard.tsx - home page. Fetches GET /queues every 5s (polling). Renders QueueCard for each queue. Also renders WorkersPanel and ThroughputChart and Live Job Stream (JobTable).",
+    "Step 15: Create dashboard/src/components/JobTable.tsx - table showing real-time job events from WebSocket. Columns: timestamp, jobId (truncated to 8 chars), jobName, queue, status, duration. Filterable by queue and status via dropdowns. Shows last 100 events. Uses ws.ts subscribe().",
+    "Step 16: Create dashboard/src/components/JobDetail.tsx - displays full job details from GET /jobs/:id. Shows all fields. Includes a Retry button for failed/dlq jobs that calls POST /jobs/:id/retry.",
+    "Step 17: Create dashboard/src/components/DlqInspector.tsx - Lists DLQ jobs for a given queue (GET /queues/:name/dlq). Shows job ID, name, error. Bulk requeue button (POST /queues/:name/dlq/requeue with { all: true }). Individual retry button per job.",
+    "Step 18: Create dashboard/src/components/ThroughputChart.tsx - Line chart (Recharts LineChart) showing jobs completed per second over last 5 minutes. Subscribes to WebSocket events, aggregates job.completed events into 1-second buckets on the client side. X-axis: time, Y-axis: jobs/sec.",
+    "Step 19: Create dashboard/src/components/WorkersPanel.tsx - Shows active workers (GET /workers, auto-refresh every 5s). Displays id, status, queue, currentJobs, lastHeartbeat in a table.",
+    "Step 20: Create dashboard/src/pages/QueueDetail.tsx - page for /queues/:name. Shows queue-specific job list (GET /queues/:name/jobs with status filter), DLQ inspector, and job detail panel when a job is selected.",
+    "Step 21: Create a src/index.css in dashboard/src/ with Tailwind directives (@tailwind base; @tailwind components; @tailwind utilities;). Import it in main.tsx.",
+    "Step 22: Update root package.json build script to also build the dashboard workspace. Add 'npm run build --workspace @nexusqueue/dashboard' at the end of the build script.",
+    "Step 23: Run npm install && npm run build to verify the entire monorepo builds including the dashboard."
+  ],
+  "acceptance_criteria": [
+    "dashboard/package.json exists with correct dependencies (react, react-dom, react-router-dom, recharts, vite, tailwindcss, typescript)",
+    "Root package.json workspaces array includes 'dashboard'",
+    "npm run build --workspace @nexusqueue/dashboard succeeds (vite build)",
+    "All components exist in dashboard/src/components/ and pages/",
+    "dashboard/src/api.ts exports fetch helpers for all 6 REST endpoints",
+    "dashboard/src/ws.ts exports WebSocket connection manager with auto-reconnect",
+    "ThroughputChart uses Recharts LineChart with client-side aggregation",
+    "Dashboard page polls GET /queues every 5s",
+    "JobTable subscribes to WebSocket and displays last 100 events",
+    "Full monorepo 'npm run build' succeeds",
+    "All existing 61 tests continue to pass"
+  ],
+  "verification": [
+    "Run 'npm run build' from /projects/sandbox/NexusQueue and confirm exit code 0 (all workspaces including dashboard)",
+    "Run 'npm test' from /projects/sandbox/NexusQueue and confirm all tests pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

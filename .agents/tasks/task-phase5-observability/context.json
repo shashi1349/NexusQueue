@@ -1,0 +1,32 @@
+{
+  "project_type": "Node.js distributed task queue engine - monorepo with shared/, server/, worker/ workspaces",
+  "language": "TypeScript (strict, ESM, NodeNext module resolution)",
+  "build_system": "npm workspaces, tsc for each workspace. Build order: shared -> server -> worker",
+  "test_framework": "Vitest with ioredis-mock for Redis mocking and vi.fn() mock pg Pool. Tests in tests/ directory at root.",
+  "build_command": "npm run build",
+  "test_command": "npm test",
+  "verification_instructions": "1. Run npm run build to verify TypeScript compiles. 2. Run npm test to confirm all tests pass (61 existing + new phase5 tests). 3. Verify dashboard builds with npm run build --workspace @nexusqueue/dashboard.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "npm install at root installs all workspace dependencies. No Docker needed for tests (uses ioredis-mock).",
+  "environment_constraints": "Node.js 22.22.3 available. npm 11.4.2. No Docker daemon for runtime testing but npm install works. Network available for package installs.",
+  "contribution_requirements": "ESM modules with 'type': 'module'. Strict TypeScript with NodeNext resolution. All .js extensions in imports. Tests use ioredis-mock + mock pg Pool pattern.",
+  "key_patterns": "Redis keys centralized in shared/src/keys.ts (redisKeys object). DB operations as thin functions in shared/src/db.ts. Routes built via buildRouter() factory accepting deps. Worker uses rpoplpush/BLMOVE for at-least-once delivery. Producer writes Postgres first, then Redis. Tests mock pg.Pool with vi.fn() capturing queries.",
+  "relevant_files": [
+    "server/src/routes.ts",
+    "server/src/index.ts",
+    "server/src/producer.ts",
+    "server/src/config.ts",
+    "server/package.json",
+    "shared/src/keys.ts",
+    "shared/src/db.ts",
+    "shared/src/types.ts",
+    "shared/src/index.ts",
+    "worker/src/worker.ts",
+    "package.json",
+    "tsconfig.base.json",
+    "vitest.config.ts",
+    "tests/phase1.test.ts",
+    "tests/phase4.test.ts"
+  ],
+  "directory_structure": "Root: package.json (workspaces), tsconfig.base.json, vitest.config.ts. shared/: types, redis keys, db helpers. server/: Express HTTP server + Producer SDK. worker/: Worker pull loop, scheduler, janitor, rate-limiter. tests/: phase1-4 test files. infra/postgres/: SQL migrations."
+}

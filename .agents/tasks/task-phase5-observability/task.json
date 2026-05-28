@@ -1,0 +1,7 @@
+{
+  "task_id": "task-phase5-observability",
+  "task_description": "Implement Phase 5 Observability Dashboard for NexusQueue: Extended REST API endpoints (GET /queues, GET /queues/:name/jobs, POST /jobs/:id/retry, GET /workers, GET /queues/:name/dlq, POST /queues/:name/dlq/requeue), WebSocket event bus with Redis PUB/SUB, and a React dashboard workspace with Vite, Tailwind, Recharts.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}
