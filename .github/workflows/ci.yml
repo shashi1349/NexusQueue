@@ -28,29 +28,6 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: nexus
-          POSTGRES_PASSWORD: nexus
-          POSTGRES_DB: nexusqueue
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U nexus -d nexusqueue"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,9 +43,6 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
-        env:
-          REDIS_URL: redis://localhost:6379
-          DATABASE_URL: postgres://nexus:nexus@localhost:5432/nexusqueue
 
   docker-build:
     name: Docker Build

@@ -82,8 +82,8 @@ services:
 
   dashboard:
     build:
-      context: .
-      dockerfile: dashboard/Dockerfile
+      context: dashboard
+      dockerfile: Dockerfile
     ports:
       - "${DASHBOARD_PORT:-80}:80"
     networks:

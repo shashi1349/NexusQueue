@@ -39,6 +39,10 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/shared/dist/ shared/dist/
 COPY --from=builder /app/server/dist/ server/dist/
 
+# Run as non-root user
+RUN addgroup -S app && adduser -S app -G app
+USER app
+
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \

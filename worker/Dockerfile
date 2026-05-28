@@ -39,6 +39,10 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/shared/dist/ shared/dist/
 COPY --from=builder /app/worker/dist/ worker/dist/
 
+# Run as non-root user
+RUN addgroup -S app && adduser -S app -G app
+USER app
+
 ENV WORKER_QUEUE=default \
     WORKER_CONCURRENCY=5 \
     WORKER_ID=worker-1
