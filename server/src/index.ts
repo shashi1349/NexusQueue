@@ -41,8 +41,10 @@ async function main(): Promise<void> {
   // Create HTTP server (needed by WebSocket event bus before listen)
   const server = http.createServer(app);
 
-  // Create a dedicated subscriber Redis client for PUB/SUB
-  const subscriberRedis = createRedisClient(cfg.redisUrl);
+  // Create a dedicated subscriber Redis client for PUB/SUB.
+  // enableOfflineQueue must be true for the subscriber so it queues the
+  // SUBSCRIBE command while the TCP connection is being established.
+  const subscriberRedis = createRedisClient(cfg.redisUrl, { enableOfflineQueue: true });
   const eventBus = new NexusEventBus(server, subscriberRedis, redis);
 
   // Create producer with event bus passed via constructor (type-safe)
