@@ -46,7 +46,7 @@ export interface ProducerDeps {
 }
 
 const DEFAULT_QUEUE = 'default';
-const DEFAULT_MAX_ATTEMPTS = 1; // Phase 1: no retries yet (Phase 2)
+const DEFAULT_MAX_ATTEMPTS = 3;
 
 export class Producer {
   constructor(private readonly deps: ProducerDeps) {}
@@ -60,18 +60,35 @@ export class Producer {
       throw new Error('enqueue: jobName must be a non-empty string');
     }
 
+    // Idempotency check: if the key already exists, return the stored jobId.
+    if (options.idempotencyKey) {
+      const existing = await this.deps.redis.get(redisKeys.idempotency(options.idempotencyKey));
+      if (existing) return existing;
+    }
+
     const id = uuidv4();
     const queueName = options.queue ?? DEFAULT_QUEUE;
     const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
 
     // (A) Durable audit row first.
-    await insertPendingJob(this.deps.pg, {
+    const insertParams: {
+      id: string;
+      queueName: string;
+      jobName: string;
+      payload: TPayload;
+      maxAttempts: number;
+      idempotencyKey?: string;
+    } = {
       id,
       queueName,
       jobName,
       payload,
       maxAttempts,
-    });
+    };
+    if (options.idempotencyKey) {
+      insertParams.idempotencyKey = options.idempotencyKey;
+    }
+    await insertPendingJob(this.deps.pg, insertParams);
 
     // (B) Make the job visible to workers.
     //   - SADD registers the queue so /queues can list it.
@@ -79,7 +96,7 @@ export class Producer {
     //   - LPUSH puts the job on the FIFO list (workers BRPOP from the right).
     //
     // We use a MULTI so all three Redis writes either succeed or fail
-    // together — keeps Redis state internally consistent even on crash.
+    // together - keeps Redis state internally consistent even on crash.
     const nowIso = new Date().toISOString();
     const multi = this.deps.redis.multi();
     multi.sadd(redisKeys.queueRegistry, queueName);
@@ -98,6 +115,11 @@ export class Producer {
     });
     multi.lpush(redisKeys.queue(queueName), id);
     await multi.exec();
+
+    // Set idempotency key with 24h TTL after successful enqueue.
+    if (options.idempotencyKey) {
+      await this.deps.redis.set(redisKeys.idempotency(options.idempotencyKey), id, 'EX', 86400);
+    }
 
     return id;
   }

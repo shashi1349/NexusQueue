@@ -1,0 +1,29 @@
+{
+  "id": "FEAT-002",
+  "type": "feat",
+  "description": "Phase 2 Reliability: Implement reliable queue (BLMOVE), ACK, retry with exponential backoff, and DLQ in the worker. Update producer for idempotency keys. Update routes to accept idempotencyKey. Change default maxAttempts from 1 to 3.",
+  "status": "completed",
+  "steps": [
+    "Update server/src/producer.ts: Change DEFAULT_MAX_ATTEMPTS from 1 to 3. Add idempotency key support: if options.idempotencyKey is provided, check Redis for key redisKeys.idempotency(key). If it exists, return the stored jobId without creating a duplicate. If it doesn't exist, after successful enqueue, SET the idempotency key in Redis with value=jobId and EX=86400 (24 hours TTL). Also pass idempotencyKey to insertPendingJob if provided.",
+    "Update server/src/routes.ts: Add 'idempotencyKey: z.string().min(1).optional()' to the enqueueBodySchema. Pass it through to producer.enqueue() in the opts object.",
+    "Rewrite worker/src/worker.ts to implement reliable queue pattern: (a) Replace BRPOP with BLMOVE (Redis >= 6.2) that atomically moves from queue list to processing list (redisKeys.processing(workerId)). The BLMOVE call should be: blmove(queueKey, processingKey, 'RIGHT', 'LEFT', 5). (b) On successful handler completion (ACK): LREM the jobId from the processing list, then mark completed in Redis hash and Postgres (existing markJobCompleted). (c) On handler failure: increment attempts in Redis hash. If attempts < maxAttempts, implement retry with exponential backoff: calculate delay = Math.min(1000 * 2^(attempt-1), 30000), use setTimeout to re-push the jobId back onto the queue list after the delay, update status to 'pending' in both Redis and Postgres (markJobPendingForRetry). Remove from processing list. (d) If attempts >= maxAttempts: move to DLQ by LPUSH to redisKeys.dlq(queueName), update status to 'dlq' in Redis hash and Postgres (markJobDlq). Remove from processing list. (e) For the 'no handler registered' case, treat it as a failure (go to DLQ immediately or use retry logic based on maxAttempts). (f) Keep blockingRedis.duplicate() pattern but use blmove instead of brpop.",
+    "Update tests/phase1.test.ts: Change the test 'enqueue() defaults queue to default and maxAttempts to 1' to expect maxAttempts '3' instead of '1' since the default changed."
+  ],
+  "acceptance_criteria": [
+    "Worker uses BLMOVE (or blmove method on ioredis) instead of BRPOP for the pull loop",
+    "On success, job is removed from processing list (LREM) and marked completed",
+    "On failure with attempts < maxAttempts, job is re-enqueued after exponential backoff delay",
+    "On failure with attempts >= maxAttempts, job is moved to DLQ list and status set to 'dlq'",
+    "Producer checks and sets idempotency keys in Redis with 24h TTL",
+    "POST /jobs accepts idempotencyKey in request body",
+    "Default maxAttempts is 3",
+    "npm run build compiles without errors",
+    "npm test passes (all Phase 1 tests still green)"
+  ],
+  "verification": [
+    "npm run build",
+    "npm test"
+  ],
+  "blocked_reason": null,
+  "findings": "All changes compiled cleanly. All 10 tests pass. Worker now uses BLMOVE via redis.call() instead of BRPOP. Tests for failure cases updated to expect 'dlq' status instead of 'failed' since maxAttempts=1 means first failure exhausts retries and goes to DLQ. The markJobFailed import is kept in the worker but unused now - only markJobDlq and markJobPendingForRetry are used for failure paths."
+}

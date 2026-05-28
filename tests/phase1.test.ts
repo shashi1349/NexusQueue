@@ -73,11 +73,11 @@ describe('Phase 1 — Producer', () => {
     expect(members).toContain('alpha');
   });
 
-  it('enqueue() defaults queue to "default" and maxAttempts to 1', async () => {
+  it('enqueue() defaults queue to "default" and maxAttempts to 3', async () => {
     const id = await producer.enqueue('test-job', {});
     const hash = await redis.hgetall(redisKeys.job(id));
     expect(hash.queueName).toBe('default');
-    expect(hash.maxAttempts).toBe('1');
+    expect(hash.maxAttempts).toBe('3');
   });
 
   it('enqueue() rejects empty jobName', async () => {
@@ -154,7 +154,7 @@ describe('Phase 1 — Worker (unit: processOne via direct call)', () => {
     expect(pgTexts.some((t) => t.includes("status = 'completed'"))).toBe(true);
   });
 
-  it('marks a job failed when handler throws', async () => {
+  it('marks a job as dlq when handler throws and max attempts reached', async () => {
     worker.register('boom', async () => {
       throw new Error('kaboom');
     });
@@ -165,12 +165,12 @@ describe('Phase 1 — Worker (unit: processOne via direct call)', () => {
     await (worker as any).processOne(jobId);
 
     const hash = await redis.hgetall(redisKeys.job(jobId));
-    expect(hash.status).toBe('failed');
+    expect(hash.status).toBe('dlq');
     expect(hash.errorMessage).toBe('kaboom');
 
-    // Postgres records the failure
+    // Postgres records the dlq status
     const pgTexts = pool.queries.map((q) => q.text);
-    expect(pgTexts.some((t) => t.includes("status = 'failed'"))).toBe(true);
+    expect(pgTexts.some((t) => t.includes("status = 'dlq'"))).toBe(true);
   });
 
   it('fails gracefully when no handler is registered', async () => {
@@ -180,7 +180,7 @@ describe('Phase 1 — Worker (unit: processOne via direct call)', () => {
     await (worker as any).processOne(jobId);
 
     const hash = await redis.hgetall(redisKeys.job(jobId));
-    expect(hash.status).toBe('failed');
+    expect(hash.status).toBe('dlq');
     expect(hash.errorMessage).toContain('no handler registered');
   });
 
