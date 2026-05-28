@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Extended REST API endpoints for the observability dashboard (Part A) plus WebSocket event bus (Part B), CORS middleware, and phase5 tests.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Install new server dependencies. Add 'ws', '@types/ws', and 'cors', '@types/cors' to server/package.json. Run npm install from root.",
     "Step 2: Add CORS middleware to server/src/index.ts. Import cors from 'cors' and apply app.use(cors()) before the JSON parser. This allows the dashboard (running on a different port) to access the API.",
@@ -39,5 +39,5 @@
     "Run 'npm test' from /projects/sandbox/NexusQueue and confirm all tests pass including new phase5 tests"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "ioredis-mock shares state across instances in the same test file. Used flushall() in beforeEach and unique queue names per test to ensure isolation. The buildRouter deps interface was made backward-compatible by making redis and eventBus optional (existing tests pass { producer, pg } without redis). 14 new phase5 tests added, all 75 tests passing."
 }
