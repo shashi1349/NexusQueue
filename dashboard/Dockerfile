@@ -3,23 +3,27 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
+# Copy root package files (npm workspaces need the root lock file)
 COPY package.json package-lock.json ./
+COPY dashboard/package.json dashboard/
+COPY shared/package.json shared/
+COPY server/package.json server/
+COPY worker/package.json worker/
 
 # Install dependencies
-RUN npm ci
+RUN npm ci --workspace @nexusqueue/dashboard
 
-# Copy source
-COPY . .
+# Copy dashboard source
+COPY dashboard/ dashboard/
 
 # Build the dashboard (vite build produces dist/)
-RUN npm run build
+RUN npm run build --workspace @nexusqueue/dashboard
 
 # Stage 2: Runtime
 FROM nginx:alpine
 
 # Copy built static files
-COPY --from=builder /app/dist/ /usr/share/nginx/html/
+COPY --from=builder /app/dashboard/dist/ /usr/share/nginx/html/
 
 # Create nginx config for SPA routing
 RUN printf 'server {\n\

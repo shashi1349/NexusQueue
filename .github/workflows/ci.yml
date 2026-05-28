@@ -54,4 +54,4 @@ jobs:
       - name: Build worker image
         run: docker build -f worker/Dockerfile -t nexusqueue-worker:ci .
       - name: Build dashboard image
-        run: docker build -f dashboard/Dockerfile -t nexusqueue-dashboard:ci dashboard/
+        run: docker build -f dashboard/Dockerfile -t nexusqueue-dashboard:ci .
