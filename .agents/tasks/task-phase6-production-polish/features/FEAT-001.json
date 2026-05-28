@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Structured logging with pino, Prometheus metrics endpoint, API key + JWT auth, OpenAPI/Swagger docs, and comprehensive tests",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Install dependencies: Add pino, pino-http to shared and server dependencies. Add pino-pretty as devDependency to root. Add prom-client, jsonwebtoken, swagger-ui-express to server dependencies. Add @types/jsonwebtoken and @types/swagger-ui-express to server devDependencies. Run npm install.",
     "Step 2 - Create shared/src/logger.ts: Export a createLogger(serviceName: string) factory function using pino. JSON output when NODE_ENV=production, pino-pretty transport in dev. LOG_LEVEL env var (default 'info'). Include base fields: service, pid. Export the Logger type. Update shared/src/index.ts to re-export from logger.ts.",
@@ -33,5 +33,5 @@
     "Run npm test in /projects/sandbox/NexusQueue and confirm all tests pass including phase6 tests"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "1. pino-http requires special ESM/CJS interop handling under NodeNext module resolution - used type assertion workaround. 2. Express 5 types (@types/express v5) define req.params values as string|string[] rather than just string - needed 'as string' casts for named route params. 3. swagger-ui-express does NOT need @ts-expect-error for ESM compat. 4. Phase 3 rate limiter test (retryAfterMs) is flaky under load (expects exact 500ms but sometimes gets 499ms) - pre-existing issue unrelated to these changes. 5. All 92 tests pass (75 existing + 17 new)."
 }
