@@ -1,5 +1,5 @@
 import type { Redis } from 'ioredis';
-import { redisKeys, markJobPendingForRetry, type Pool } from '@nexusqueue/shared';
+import { redisKeys, markJobPendingForRetry, createLogger, type Pool } from '@nexusqueue/shared';
 
 export interface JanitorDeps {
   redis: Redis;
@@ -17,6 +17,7 @@ export class Janitor {
   private readonly intervalMs: number;
   private readonly redis: Redis;
   private readonly pg: Pool;
+  private readonly logger = createLogger('janitor');
 
   constructor(deps: JanitorDeps) {
     this.redis = deps.redis;
@@ -30,8 +31,7 @@ export class Janitor {
       this.ticking = true;
       this.tick()
         .catch((err: unknown) => {
-          // eslint-disable-next-line no-console
-          console.error('[janitor] tick failed:', err);
+          this.logger.error({ err }, 'tick failed');
         })
         .finally(() => {
           this.ticking = false;
@@ -90,9 +90,9 @@ export class Janitor {
       await this.redis.del(redisKeys.workerMeta(workerId));
 
       if (orphanedJobs.length > 0) {
-        // eslint-disable-next-line no-console
-        console.log(
-          `[janitor] recovered ${orphanedJobs.length} orphaned jobs from dead worker ${workerId}`,
+        this.logger.info(
+          { workerId, orphanedCount: orphanedJobs.length },
+          'recovered orphaned jobs from dead worker',
         );
       }
     }

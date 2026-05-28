@@ -14,3 +14,4 @@ export {
   getJob,
   type Pool,
 } from './db.js';
+export { createLogger, type Logger } from './logger.js';

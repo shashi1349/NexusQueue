@@ -1,0 +1,37 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Structured logging with pino, Prometheus metrics endpoint, API key + JWT auth, OpenAPI/Swagger docs, and comprehensive tests",
+  "status": "in_progress",
+  "steps": [
+    "Step 1 - Install dependencies: Add pino, pino-http to shared and server dependencies. Add pino-pretty as devDependency to root. Add prom-client, jsonwebtoken, swagger-ui-express to server dependencies. Add @types/jsonwebtoken and @types/swagger-ui-express to server devDependencies. Run npm install.",
+    "Step 2 - Create shared/src/logger.ts: Export a createLogger(serviceName: string) factory function using pino. JSON output when NODE_ENV=production, pino-pretty transport in dev. LOG_LEVEL env var (default 'info'). Include base fields: service, pid. Export the Logger type. Update shared/src/index.ts to re-export from logger.ts.",
+    "Step 3 - Create server/src/metrics.ts: Use prom-client to set up default metrics (collectDefaultMetrics). Create custom counters: nexusqueue_jobs_enqueued_total (labels: queue, priority), nexusqueue_jobs_completed_total (labels: queue), nexusqueue_jobs_failed_total (labels: queue), nexusqueue_jobs_dlq_total (labels: queue), nexusqueue_jobs_retried_total (labels: queue). Create gauges: nexusqueue_queue_depth (labels: queue, priority), nexusqueue_active_workers (labels: queue). Create histogram: nexusqueue_job_duration_seconds (labels: queue, jobName). Export a getMetricsHandler that returns Prometheus text format. Export increment functions for use by routes and producer.",
+    "Step 4 - Create server/src/auth.ts: Implement apiKeyMiddleware that reads API_KEYS env var (comma-separated), checks Authorization: Bearer <key> or X-API-Key header, returns 401 if invalid. If API_KEYS not set, pass through (auth disabled). Implement jwtMiddleware that reads JWT_SECRET env var, validates Authorization: Bearer <jwt>, returns 401 if invalid. If JWT_SECRET not set, pass through. Implement POST /auth/login handler: accepts { username, password }, validates against DASHBOARD_USER/DASHBOARD_PASSWORD env vars, returns signed JWT (24h expiry). If env vars not set, return 501.",
+    "Step 5 - Create server/src/openapi.ts: Define the OpenAPI 3.0 spec as a TypeScript object documenting all endpoints (POST /jobs, GET /jobs/:id, GET /queues, GET /queues/:name/jobs, POST /jobs/:id/retry, GET /workers, GET /queues/:name/dlq, POST /queues/:name/dlq/requeue, POST /auth/login, GET /health, GET /metrics). Include request/response schemas, auth requirements (API key for POST /jobs, JWT for dashboard routes), and examples. Export the spec object and a setup function that mounts swagger-ui-express at /docs and the JSON spec at /docs/json.",
+    "Step 6 - Update server/src/routes.ts: Apply apiKeyMiddleware to POST /jobs. Apply jwtMiddleware to GET /queues, GET /queues/:name/jobs, POST /jobs/:id/retry, GET /workers, GET /queues/:name/dlq, POST /queues/:name/dlq/requeue. Add GET /metrics endpoint (no auth). Add POST /auth/login endpoint (no auth). Keep GET /health unprotected. Import and use the metrics increment functions where appropriate (increment enqueued counter on POST /jobs success, increment retried counter on retry success).",
+    "Step 7 - Update server/src/index.ts: Import and create pino logger via createLogger('server'). Add pino-http request logging middleware (skip /health and /metrics). Replace all console.log/error/warn with logger calls. Mount swagger UI at /docs using the openapi setup function. Replace console.error in error handler with logger.error.",
+    "Step 8 - Replace console.log/error/warn in worker/src/index.ts, worker/src/worker.ts, and worker/src/janitor.ts: Import createLogger from @nexusqueue/shared, create logger instances, replace all console calls with appropriate log levels (info for lifecycle, warn for recoverable issues, error for failures, debug for verbose).",
+    "Step 9 - Create tests/phase6.test.ts: Test GET /metrics returns 200 with text/plain content containing 'nexusqueue_jobs_enqueued_total'. Test POST /jobs returns 401 when API_KEYS is set and no key provided. Test POST /jobs succeeds with valid API key. Test GET /queues returns 401 when JWT_SECRET is set and no token provided. Test POST /auth/login returns JWT token. Test GET /queues succeeds with valid JWT. Test GET /docs returns 200 with HTML. Test that auth is disabled (requests pass through) when env vars are not set - existing tests remain green.",
+    "Step 10 - Verify build and all tests pass: Run npm run build (should have 0 errors). Run npm test (all 75+ existing tests pass, new phase6 tests pass)."
+  ],
+  "acceptance_criteria": [
+    "npm run build succeeds with zero TypeScript errors",
+    "All existing 75 tests pass unchanged (auth disabled by default when env vars not set)",
+    "New phase6 tests pass covering: /metrics endpoint, API key auth, JWT auth, /auth/login, /docs endpoint",
+    "GET /metrics returns Prometheus text format with custom NexusQueue metrics",
+    "POST /jobs requires API key when API_KEYS env var is set",
+    "GET /queues requires JWT when JWT_SECRET env var is set",
+    "POST /auth/login returns a valid JWT when credentials match",
+    "GET /docs returns Swagger UI HTML page",
+    "GET /docs/json returns the OpenAPI spec as JSON",
+    "All console.log/error/warn calls in server/ and worker/ are replaced with pino logger",
+    "shared/src/logger.ts exports createLogger factory with JSON in production, pretty in dev"
+  ],
+  "verification": [
+    "Run npm run build in /projects/sandbox/NexusQueue and confirm exit code 0",
+    "Run npm test in /projects/sandbox/NexusQueue and confirm all tests pass including phase6 tests"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

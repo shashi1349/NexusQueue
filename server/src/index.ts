@@ -1,11 +1,18 @@
 import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
-import { createPgPool, createRedisClient } from '@nexusqueue/shared';
+import pinoHttpModule from 'pino-http';
+
+// ESM/CJS interop workaround for pino-http under NodeNext resolution
+const pinoHttp = pinoHttpModule as unknown as typeof pinoHttpModule.default;
+import { createPgPool, createRedisClient, createLogger } from '@nexusqueue/shared';
 import { loadServerConfig } from './config.js';
 import { Producer } from './producer.js';
 import { buildRouter } from './routes.js';
 import { NexusEventBus } from './websocket.js';
+import { setupSwagger } from './openapi.js';
+
+const logger = createLogger('server');
 
 async function main(): Promise<void> {
   const cfg = loadServerConfig();
@@ -15,6 +22,21 @@ async function main(): Promise<void> {
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
+
+  // Request logging (skip /health and /metrics)
+  const httpLogger = pinoHttp({
+    logger,
+    autoLogging: {
+      ignore: (req) => {
+        const url = req.url ?? '';
+        return url === '/health' || url === '/metrics';
+      },
+    },
+  });
+  app.use(httpLogger);
+
+  // Mount Swagger UI
+  setupSwagger(app);
 
   // Create HTTP server (needed by WebSocket event bus before listen)
   const server = http.createServer(app);
@@ -29,7 +51,7 @@ async function main(): Promise<void> {
   // Mount routes
   app.use(buildRouter({ producer, pg, redis, eventBus }));
 
-  // Centralized error handler - must come AFTER routes. Phase 6 will swap to pino.
+  // Centralized error handler - must come AFTER routes.
   app.use(
     (
       err: unknown,
@@ -37,21 +59,18 @@ async function main(): Promise<void> {
       res: express.Response,
       _next: express.NextFunction,
     ) => {
-      // eslint-disable-next-line no-console
-      console.error('[server] unhandled error:', err);
+      logger.error({ err }, 'unhandled error');
       res.status(500).json({ error: 'internal_error' });
     },
   );
 
   server.listen(cfg.port, cfg.host, () => {
-    // eslint-disable-next-line no-console
-    console.log(`[server] listening on http://${cfg.host}:${cfg.port}`);
+    logger.info({ host: cfg.host, port: cfg.port }, 'server listening');
   });
 
   // Graceful shutdown so docker stop / Ctrl+C don't drop in-flight requests.
   const shutdown = async (signal: string): Promise<void> => {
-    // eslint-disable-next-line no-console
-    console.log(`[server] received ${signal}, draining...`);
+    logger.info({ signal }, 'received shutdown signal, draining...');
     eventBus.close();
     server.close(() => {
       void Promise.all([redis.quit(), subscriberRedis.quit(), pg.end()]).then(() => process.exit(0));
@@ -62,8 +81,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('[server] failed to start:', err);
+  logger.fatal({ err }, 'failed to start');
   process.exit(1);
 });
 

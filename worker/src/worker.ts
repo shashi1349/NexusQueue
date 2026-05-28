@@ -5,6 +5,7 @@ import {
   markJobCompleted,
   markJobDlq,
   markJobDelayed,
+  createLogger,
   type Pool,
   type RateLimitConfig,
 } from '@nexusqueue/shared';
@@ -42,6 +43,7 @@ export class Worker {
   private rateLimiter = new RateLimiter();
   private activeJobs = new Set<Promise<void>>();
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly logger = createLogger('worker');
 
   constructor(private readonly deps: WorkerDeps) {
     // Dedicated client for BLMOVE so we don't block other commands.
@@ -113,9 +115,9 @@ export class Worker {
       );
       const result = await Promise.race([drainPromise, timeoutPromise]);
       if (result === 'timeout') {
-        // eslint-disable-next-line no-console
-        console.warn(
-          `[worker:${this.deps.workerId}] shutdown timeout: ${this.activeJobs.size} jobs still in-flight`,
+        this.logger.warn(
+          { workerId: this.deps.workerId, activeJobs: this.activeJobs.size },
+          'shutdown timeout: jobs still in-flight',
         );
       }
     }
@@ -216,8 +218,7 @@ export class Worker {
         this.activeJobs.add(jobPromise);
       } catch (err) {
         // Loop must never die from a transient error. Log + continue.
-        // eslint-disable-next-line no-console
-        console.error(`[worker:${this.deps.workerId}] loop error:`, err);
+        this.logger.error({ err, workerId: this.deps.workerId }, 'loop error');
         // Tiny backoff so we don't hot-spin if Redis is down.
         await new Promise((r) => setTimeout(r, 500));
       }
@@ -266,8 +267,7 @@ export class Worker {
     // Load the job hash from Redis (faster than going to Postgres).
     const hash = await this.deps.redis.hgetall(redisKeys.job(jobId));
     if (!hash || !hash.jobName) {
-      // eslint-disable-next-line no-console
-      console.warn(`[worker] job ${jobId} hash missing -- skipping`);
+      this.logger.warn({ jobId }, 'job hash missing, skipping');
       return;
     }
     const jobName = hash.jobName;

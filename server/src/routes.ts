@@ -5,12 +5,16 @@ import type { Producer } from './producer.js';
 import type { Pool } from '@nexusqueue/shared';
 import type { Redis } from 'ioredis';
 import type { NexusEventBus } from './websocket.js';
+import { apiKeyMiddleware, jwtMiddleware, loginHandler } from './auth.js';
+import { getMetricsHandler, incrementEnqueued, incrementRetried } from './metrics.js';
 
 /**
  * REST surface:
  *   POST /jobs        -> enqueue
  *   GET  /jobs/:id    -> read job from Postgres
  *   GET  /health      -> liveness for Render/Railway
+ *   GET  /metrics     -> Prometheus metrics
+ *   POST /auth/login  -> get JWT token
  *   GET  /queues      -> list queues with stats
  *   GET  /queues/:name/jobs  -> list jobs for a queue
  *   POST /jobs/:id/retry     -> retry a failed/dlq job
@@ -39,11 +43,17 @@ export interface RouterDeps {
 export function buildRouter(deps: RouterDeps): Router {
   const r = Router();
 
+  // Unprotected endpoints
   r.get('/health', (_req, res) => {
     res.json({ status: 'ok' });
   });
 
-  r.post('/jobs', async (req, res, next) => {
+  r.get('/metrics', getMetricsHandler);
+
+  r.post('/auth/login', loginHandler);
+
+  // API key protected
+  r.post('/jobs', apiKeyMiddleware, async (req, res, next) => {
     try {
       const body = enqueueBodySchema.parse(req.body);
       const opts: { queue?: string; maxAttempts?: number; idempotencyKey?: string; delay?: number; priority?: 'high' | 'normal' | 'low' } = {};
@@ -54,6 +64,7 @@ export function buildRouter(deps: RouterDeps): Router {
       if (body.priority !== undefined) opts.priority = body.priority;
 
       const jobId = await deps.producer.enqueue(body.jobName, body.payload, opts);
+      incrementEnqueued(body.queue ?? 'default', body.priority ?? 'normal');
       res.status(201).json({ jobId });
     } catch (err) {
       if (err instanceof z.ZodError) {
@@ -86,7 +97,7 @@ export function buildRouter(deps: RouterDeps): Router {
   if (deps.redis) {
     const redis = deps.redis;
 
-    r.get('/queues', async (_req, res, next) => {
+    r.get('/queues', jwtMiddleware, async (_req, res, next) => {
       try {
         const queueNames = await redis.smembers(redisKeys.queueRegistry);
         const queues = await Promise.all(queueNames.map(async (name) => {
@@ -120,9 +131,9 @@ export function buildRouter(deps: RouterDeps): Router {
       } catch (err) { next(err); }
     });
 
-    r.get('/queues/:name/jobs', async (req, res, next) => {
+    r.get('/queues/:name/jobs', jwtMiddleware, async (req, res, next) => {
       try {
-        const name = req.params.name!;
+        const name = req.params.name as string;
         const status = req.query.status as string | undefined;
         const validStatuses = ['pending', 'active', 'completed', 'failed', 'dlq', 'delayed'];
         if (status && !validStatuses.includes(status)) {
@@ -168,9 +179,9 @@ export function buildRouter(deps: RouterDeps): Router {
       } catch (err) { next(err); }
     });
 
-    r.post('/jobs/:id/retry', async (req, res, next) => {
+    r.post('/jobs/:id/retry', jwtMiddleware, async (req, res, next) => {
       try {
-        const id = req.params.id!;
+        const id = req.params.id as string;
         const job = await getJob(deps.pg, id);
         if (!job) { res.status(404).json({ error: 'not_found' }); return; }
         if (job.status !== 'failed' && job.status !== 'dlq') {
@@ -201,6 +212,8 @@ export function buildRouter(deps: RouterDeps): Router {
           : redisKeys.queuePriority(job.queueName, priority);
         await redis.lpush(targetList, id);
 
+        incrementRetried(job.queueName);
+
         // Publish event
         if (deps.eventBus) {
           await deps.eventBus.publish({
@@ -216,7 +229,7 @@ export function buildRouter(deps: RouterDeps): Router {
       } catch (err) { next(err); }
     });
 
-    r.get('/workers', async (_req, res, next) => {
+    r.get('/workers', jwtMiddleware, async (_req, res, next) => {
       try {
         const workerIds = await redis.smembers(redisKeys.workerRegistry);
         const workers = await Promise.all(workerIds.map(async (id) => {
@@ -235,9 +248,9 @@ export function buildRouter(deps: RouterDeps): Router {
       } catch (err) { next(err); }
     });
 
-    r.get('/queues/:name/dlq', async (req, res, next) => {
+    r.get('/queues/:name/dlq', jwtMiddleware, async (req, res, next) => {
       try {
-        const name = req.params.name!;
+        const name = req.params.name as string;
         const limit = Math.min(Number(req.query.limit) || 50, 200);
         const offset = Number(req.query.offset) || 0;
         const total = await redis.llen(redisKeys.dlq(name));
@@ -262,9 +275,9 @@ export function buildRouter(deps: RouterDeps): Router {
       } catch (err) { next(err); }
     });
 
-    r.post('/queues/:name/dlq/requeue', async (req, res, next) => {
+    r.post('/queues/:name/dlq/requeue', jwtMiddleware, async (req, res, next) => {
       try {
-        const name = req.params.name!;
+        const name = req.params.name as string;
         const body = req.body as { jobIds?: string[]; all?: boolean };
 
         let jobIds: string[];

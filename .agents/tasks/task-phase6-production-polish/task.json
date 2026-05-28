@@ -1,0 +1,7 @@
+{
+  "task_id": "task-phase6-production-polish",
+  "task_description": "Implement Phase 6 (Production Polish) of NexusQueue: structured pino logging, Prometheus /metrics endpoint, API key + JWT auth, OpenAPI/Swagger docs, and comprehensive README update.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001", "FEAT-002"],
+  "blocked_reason": null
+}

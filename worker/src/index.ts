@@ -1,4 +1,4 @@
-import { createPgPool, createRedisClient } from '@nexusqueue/shared';
+import { createPgPool, createRedisClient, createLogger } from '@nexusqueue/shared';
 import { loadWorkerConfig } from './config.js';
 import { Worker } from './worker.js';
 import { Scheduler } from './scheduler.js';
@@ -18,6 +18,7 @@ import { Janitor } from './janitor.js';
  */
 async function main(): Promise<void> {
   const cfg = loadWorkerConfig();
+  const logger = createLogger('worker');
   const redis = createRedisClient(cfg.redisUrl);
   const pg = createPgPool(cfg.databaseUrl);
 
@@ -30,10 +31,9 @@ async function main(): Promise<void> {
   });
 
   worker.register('echo', async (payload, ctx) => {
-    // eslint-disable-next-line no-console
-    console.log(
-      `[worker:${ctx.workerId}] echo job=${ctx.jobId} attempt=${ctx.attempt}`,
-      payload,
+    logger.debug(
+      { jobId: ctx.jobId, attempt: ctx.attempt, payload },
+      'echo job executing',
     );
     return { echoed: payload };
   });
@@ -50,14 +50,13 @@ async function main(): Promise<void> {
   }
 
   await worker.start();
-  // eslint-disable-next-line no-console
-  console.log(
-    `[worker:${cfg.workerId}] listening on queue="${cfg.queue}" concurrency=${cfg.concurrency} handlers=[echo]`,
+  logger.info(
+    { workerId: cfg.workerId, queue: cfg.queue, concurrency: cfg.concurrency, handlers: ['echo'] },
+    'worker started',
   );
 
   const shutdown = async (signal: string): Promise<void> => {
-    // eslint-disable-next-line no-console
-    console.log(`[worker:${cfg.workerId}] received ${signal}, draining...`);
+    logger.info({ signal }, 'received shutdown signal, draining...');
     scheduler.stop();
     if (janitor) janitor.stop();
     await worker.stop();
@@ -69,8 +68,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error('[worker] failed to start:', err);
+  const logger = createLogger('worker');
+  logger.fatal({ err }, 'failed to start');
   process.exit(1);
 });
 
