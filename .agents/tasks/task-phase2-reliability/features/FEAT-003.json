@@ -1,0 +1,26 @@
+{
+  "id": "FEAT-003",
+  "type": "feat",
+  "description": "Phase 2 Reliability: Write comprehensive Vitest tests for all Phase 2 features in tests/phase2.test.ts",
+  "status": "completed",
+  "steps": [
+    "Create tests/phase2.test.ts with the same test infrastructure pattern as tests/phase1.test.ts (ioredis-mock, mock pg Pool, direct processOne() calls on worker).",
+    "Test: ACK removes from processing list - Seed a job hash in Redis, manually add the jobId to the processing list (simulating BLMOVE already happened), call processOne(), assert the jobId is no longer in the processing list (LRANGE and check), and that Redis hash status is 'completed'.",
+    "Test: Retry with exponential backoff - Use vi.useFakeTimers(). Register a handler that throws. Seed a job with maxAttempts='3' and attempts='0'. Call processOne(). Assert: status set to 'pending' in Redis hash, job removed from processing list, attempts incremented. Then advance timers by the expected delay (1000ms for first retry). Assert: jobId re-appears in the queue list. Verify delay formula: baseDelay * 2^(attempt-1).",
+    "Test: DLQ after max attempts exhausted - Register a handler that throws. Seed a job with maxAttempts='2' and attempts='1' (meaning this is the last attempt). Call processOne(). Assert: jobId is in the DLQ list (redisKeys.dlq(queueName)), status is 'dlq' in Redis hash, Postgres mock received the dlq update, job is NOT re-pushed to the queue list.",
+    "Test: Idempotency key deduplication - Create a Producer with mock Redis and pg. Call enqueue with idempotencyKey='abc'. Note the returned jobId. Call enqueue again with same idempotencyKey='abc'. Assert: same jobId is returned, Postgres INSERT was only called once, Redis list only has one entry.",
+    "Test: Idempotency key not set when no key provided - Enqueue without idempotencyKey. Assert no idempotency key is set in Redis.",
+    "Ensure all tests pass with npm test."
+  ],
+  "acceptance_criteria": [
+    "tests/phase2.test.ts exists with at least 5 test cases covering ACK, retry, DLQ, and idempotency",
+    "All Phase 2 tests pass",
+    "All Phase 1 tests still pass",
+    "npm test shows all tests passing"
+  ],
+  "verification": [
+    "npm test"
+  ],
+  "blocked_reason": null,
+  "findings": "All 9 Phase 2 tests pass alongside the 10 Phase 1 tests (19 total). Used vi.advanceTimersByTimeAsync() for fake timer tests to properly handle async setTimeout callbacks. MaxListenersExceededWarning appears due to ioredis-mock duplicate() calls but does not affect test correctness."
+}

@@ -1,0 +1,14 @@
+{
+  "task_id": "task-phase2-reliability",
+  "task_description": "Implement Phase 2 (Reliability) of NexusQueue: at-least-once delivery via BLMOVE, explicit ACK, retry with exponential backoff, Dead Letter Queue, and idempotency keys.",
+  "status": "completed",
+  "feature_order": ["FEAT-001", "FEAT-002", "FEAT-003"],
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "Build compiles all 3 workspaces cleanly. All 19 tests pass (10 Phase 1 + 9 Phase 2). Tests exercise real code paths through processOne() and enqueue(), verify state transitions in Redis and Postgres mock, and use fake timers for exponential backoff validation."
+  }
+}

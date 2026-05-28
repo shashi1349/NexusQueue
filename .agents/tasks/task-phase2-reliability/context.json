@@ -1,0 +1,30 @@
+{
+  "project_type": "Node.js distributed task queue engine (monorepo with shared/, server/, worker/)",
+  "language": "TypeScript (ESM, strict mode with noUncheckedIndexedAccess and exactOptionalPropertyTypes)",
+  "build_system": "npm workspaces - must build shared first (others depend on its dist/)",
+  "test_framework": "Vitest with ioredis-mock for Redis and manual pg Pool mock. Tests in tests/ directory at root.",
+  "build_command": "npm run build",
+  "test_command": "npm test",
+  "verification_instructions": "1. Run npm run build to compile all workspaces. 2. Run npm test to run Vitest suite. Both must exit 0.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "npm install (already done). No Docker/Redis/Postgres needed for tests - all mocked.",
+  "environment_constraints": "No persistent services (Redis/Postgres) available. Tests use ioredis-mock and mock pg Pool. ioredis-mock does NOT support BRPOP/BLMOVE - test worker logic via processOne() directly. ESM modules with type: module.",
+  "contribution_requirements": "Keep Phase 1 tests passing. Use strict TypeScript. Follow existing patterns.",
+  "key_patterns": "Redis keys centralized in shared/src/keys.ts. DB operations as thin functions in shared/src/db.ts exported from shared/src/index.ts. Worker uses processOne() for per-job logic (testable). Producer uses redis.multi() for atomic Redis writes. Types in shared/src/types.ts. Tests mock pg with vi.fn() capturing queries array.",
+  "relevant_files": [
+    "shared/src/keys.ts",
+    "shared/src/types.ts",
+    "shared/src/db.ts",
+    "shared/src/index.ts",
+    "server/src/producer.ts",
+    "server/src/routes.ts",
+    "worker/src/worker.ts",
+    "worker/src/handlers.ts",
+    "tests/phase1.test.ts",
+    "infra/postgres/001_init.sql",
+    "vitest.config.ts",
+    "package.json",
+    "tsconfig.base.json"
+  ],
+  "directory_structure": "shared/ - types, keys, db helpers, redis client factory. server/ - Express REST API + Producer SDK. worker/ - Worker pull loop + handler registry. tests/ - Vitest test files. infra/postgres/ - SQL migration files. examples/ - smoke test script."
+}

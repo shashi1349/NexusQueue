@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Phase 2 Reliability: Update shared types, keys, DB helpers, and Postgres schema for reliability features (processing list, DLQ, idempotency, retry support)",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Update shared/src/keys.ts: Add three new key functions - processing(workerId: string) returning 'nexus:processing:{workerId}', dlq(queueName: string) returning 'nexus:dlq:{queueName}', and idempotency(key: string) returning 'nexus:idem:{key}'.",
     "Update shared/src/types.ts: Add 'idempotencyKey?: string' to the EnqueueOptions interface. Ensure exactOptionalPropertyTypes compatibility (use '?: string | undefined' if needed for the optional property).",
@@ -23,5 +23,5 @@
     "npm test"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "All changes compiled cleanly. Full build passes. All 10 Phase 1 tests still pass. The insertPendingJob function now accepts an optional idempotencyKey parameter with a 6th $6 placeholder."
 }
