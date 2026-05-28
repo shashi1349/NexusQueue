@@ -1,0 +1,7 @@
+{
+  "task_id": "task-phase4-worker-coordination",
+  "task_description": "Implement Phase 4 (Worker Coordination) of NexusQueue: worker heartbeats with TTL, stuck job detection via janitor process, graceful shutdown with drain logic, and configurable concurrency control per worker.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

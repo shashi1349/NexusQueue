@@ -1,0 +1,39 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Implement Phase 4 Worker Coordination: heartbeats, concurrency control, graceful shutdown, janitor process, and comprehensive tests",
+  "status": "completed",
+  "steps": [
+    "Step 1: Update shared/src/keys.ts to add three new Redis key patterns: heartbeat(workerId) returning 'nexus:heartbeat:{workerId}', workerMeta(workerId) returning 'nexus:worker:{workerId}', and workerRegistry returning 'nexus:workers'. Then update shared/src/index.ts if needed (keys are already re-exported via keys.ts wildcard export).",
+    "Step 2: Update worker/src/config.ts to add JANITOR_ENABLED (boolean, default true) and JANITOR_INTERVAL_MS (number, default 30000) and WORKER_CONCURRENCY (number, default 5) to the WorkerConfig interface and loadWorkerConfig function. Note: WORKER_CONCURRENCY already exists in config.ts (default 1), just change the default to 5.",
+    "Step 3: Refactor worker/src/worker.ts to support concurrent job processing. Replace the serial loop() with a concurrency-controlled approach: (a) Add a 'concurrency' option to WorkerDeps interface. (b) Track active jobs using a Set<Promise<void>>. (c) The loop pulls a job only when activeJobs.size < concurrency. (d) Each pulled job is processed in parallel (its Promise added to the Set, removed on completion). (e) Use a short sleep (50-100ms) between pull attempts to avoid hot-spinning when slots are full. Keep the existing pullJob() and processOne() methods intact.",
+    "Step 4: Add heartbeat functionality to worker/src/worker.ts. On start(): (a) Register worker in 'nexus:workers' set via SADD. (b) Write initial heartbeat: SET nexus:heartbeat:{workerId} {timestamp} EX 15. (c) Write worker metadata hash with fields: status='active', queue, startedAt (ISO string), currentJobs='0'. (d) Start a setInterval that every 5000ms writes the heartbeat SET with EX 15 and updates currentJobs count in the metadata hash. On stop(): clear the interval.",
+    "Step 5: Add graceful shutdown to worker/src/worker.ts. On stop(): (a) Set stopRequested=true to exit the pull loop. (b) Update worker metadata hash status to 'draining'. (c) Wait for all in-flight jobs (the Set<Promise<void>>) to settle, with a 30s timeout. If timeout, log warning. (d) Remove worker from 'nexus:workers' set. (e) Delete heartbeat key and worker metadata hash key. (f) Close the blocking Redis client. Return a Promise that resolves when cleanup is done.",
+    "Step 6: Update worker/src/index.ts to wire up graceful shutdown properly. The SIGTERM/SIGINT handlers should call worker.stop() which now handles draining internally. Also conditionally start the Janitor if config.janitorEnabled is true. Import and instantiate the Janitor class (created in next step).",
+    "Step 7: Create worker/src/janitor.ts with a Janitor class. Constructor takes {redis, pg, intervalMs}. Methods: start() begins a setInterval. stop() clears it. tick() (public, for testing) does the stuck job detection: (a) SMEMBERS nexus:workers to get all worker IDs. (b) For each worker, EXISTS nexus:heartbeat:{workerId}. (c) If heartbeat missing (dead worker): LRANGE nexus:processing:{workerId} 0 -1 to get orphaned job IDs. For each orphaned job: read priority from the job hash, LPUSH to the correct queue list (based on priority), HSET status='pending' on the job hash. Also update Postgres via markJobPendingForRetry(). Then DEL the processing list key, SREM the worker from nexus:workers, DEL the worker metadata hash. (d) Log recovered jobs. Export the Janitor class from worker/src/index.ts.",
+    "Step 8: Create tests/phase4.test.ts with comprehensive tests covering: (a) Heartbeat: after worker.start(), verify nexus:heartbeat:{workerId} exists with TTL, verify worker metadata hash has expected fields, verify worker is in nexus:workers set. (b) Janitor: seed a dead worker scenario (worker ID in nexus:workers, no heartbeat key, jobs in processing list with job hashes), call janitor.tick(), verify jobs are re-enqueued to correct priority queue, processing list deleted, worker removed from set, Postgres markJobPendingForRetry called. (c) Graceful shutdown: start worker, seed a job that takes some time (using a delayed Promise in the handler), call worker.stop(), verify the in-flight job completes before stop() resolves, verify worker is removed from nexus:workers and heartbeat/metadata keys are deleted. (d) Concurrency: configure worker with concurrency=3, seed 3 jobs in the queue, use a handler that tracks concurrent execution count (increment on entry, decrement on exit, record max), process all 3 via a method like processAvailable(), verify max concurrent was 3 (or close to it). (e) Worker registration/deregistration: verify SADD on start, SREM on stop. Use the same ioredis-mock + mock pg pool pattern from existing tests. Access private methods via (worker as any).method() for testing. For concurrency testing, expose a processAvailable() or similar method, or directly invoke the loop for a controlled number of iterations.",
+    "Step 9: Run npm run build to verify TypeScript compilation succeeds across all workspaces. Fix any type errors.",
+    "Step 10: Run npm test to verify all tests pass (phase1, phase2, phase3, phase4). The known flaky rate-limiter test (499 vs 500) is pre-existing and acceptable."
+  ],
+  "acceptance_criteria": [
+    "shared/src/keys.ts exports heartbeat(workerId), workerMeta(workerId), and workerRegistry keys",
+    "worker/src/config.ts exposes JANITOR_ENABLED, JANITOR_INTERVAL_MS, and WORKER_CONCURRENCY (default 5)",
+    "Worker class processes up to N jobs concurrently where N = concurrency config",
+    "Worker writes heartbeat every 5s with 15s TTL on start",
+    "Worker registers itself in nexus:workers on start and deregisters on stop",
+    "Worker metadata hash tracks status (active/draining), queue, startedAt, currentJobs",
+    "worker.stop() sets status to draining, waits for in-flight jobs (30s timeout), then cleans up all keys",
+    "Janitor class detects dead workers (missing heartbeat) and re-enqueues their orphaned jobs",
+    "Janitor updates Postgres status back to pending for recovered jobs",
+    "worker/src/janitor.ts exists with start/stop/tick methods",
+    "tests/phase4.test.ts has tests for heartbeat, janitor, graceful shutdown, concurrency, and registration",
+    "npm run build succeeds without errors",
+    "npm test passes (39+ existing tests plus new phase4 tests)"
+  ],
+  "verification": [
+    "Run 'npm run build' and confirm exit code 0",
+    "Run 'npm test' and confirm all phase4 tests pass along with existing tests"
+  ],
+  "blocked_reason": null,
+  "findings": "All 61 tests pass (phase1: 10, phase2: 9, phase3: 21, phase4: 21). ioredis-mock does not support blockingRedis.call() for BLMOVE which triggers error logs in tests using worker.start(), but the loop handles this gracefully via its catch block with 500ms backoff. Tests that use start()/stop() take ~500ms each due to this backoff before the loop exits. The processAvailable() method was added for concurrency testing without BLMOVE dependency. Worker.start() is now async (was void) to properly await Redis registration setup."
+}

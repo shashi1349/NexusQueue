@@ -1,0 +1,31 @@
+{
+  "project_type": "Node.js distributed task queue engine (monorepo: shared, server, worker)",
+  "language": "TypeScript (ESM, strict mode)",
+  "build_system": "npm workspaces, tsc per workspace. Must build shared first: npm run build --workspace @nexusqueue/shared",
+  "test_framework": "Vitest with ioredis-mock and mock pg Pool. Tests in tests/ directory. ioredis-mock does NOT support BLMOVE so worker tests use processOne() directly.",
+  "build_command": "npm run build",
+  "test_command": "npm test",
+  "verification_instructions": "1. Run npm run build (builds shared, server, worker in order). 2. Run npm test (vitest run). All tests except the known flaky rate-limiter timing test should pass.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "Dependencies already installed. Run npm run build to compile all workspaces.",
+  "environment_constraints": "No persistent background services (Redis/Postgres). Tests must use ioredis-mock and mock pg Pool. ioredis-mock supports SET EX, HSET, HGETALL, SADD, SREM, SMEMBERS, LRANGE, LREM, LPUSH, DEL, EXISTS, TTL but NOT BLMOVE/EVAL.",
+  "contribution_requirements": "ESM modules with type:module, NodeNext resolution. Strict TypeScript with noUncheckedIndexedAccess and exactOptionalPropertyTypes. No implicit any.",
+  "key_patterns": "Worker uses processOne() for testability. Tests use createMockPool() pattern returning {pool, queries} to track Postgres calls. Redis keys centralized in shared/src/keys.ts. Job state stored in Redis hashes + Postgres. Worker class takes {redis, pg, queue, workerId} deps. Handlers registered via worker.register(jobName, fn). Private methods tested via (worker as any).methodName().",
+  "relevant_files": [
+    "shared/src/keys.ts",
+    "shared/src/types.ts",
+    "shared/src/db.ts",
+    "shared/src/index.ts",
+    "worker/src/worker.ts",
+    "worker/src/config.ts",
+    "worker/src/index.ts",
+    "worker/src/handlers.ts",
+    "worker/src/scheduler.ts",
+    "tests/phase2.test.ts",
+    "tests/phase3.test.ts",
+    "worker/package.json",
+    "vitest.config.ts",
+    "tsconfig.base.json"
+  ],
+  "directory_structure": "shared/ - types, keys, db helpers, redis client factory. server/ - Express API + Producer class. worker/ - Worker class, Scheduler, CronManager, RateLimiter, handlers registry. tests/ - Vitest test files (phase1-3). examples/ - smoke test. infra/postgres/ - SQL migrations."
+}
