@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "docs",
   "description": "Update root README.md with comprehensive documentation including Mermaid architecture diagram, complete feature list, API reference, configuration reference, quickstart instructions, and trade-offs section",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1 - Rewrite README.md with: Mermaid architecture diagram showing all components (Producer, Server, Worker, Scheduler, Janitor, Redis, Postgres, Dashboard, WebSocket). Updated feature list covering all 6 phases. API documentation summary for all endpoints. Configuration reference table for all env vars (REDIS_URL, DATABASE_URL, SERVER_PORT, SERVER_HOST, WORKER_QUEUE, WORKER_CONCURRENCY, WORKER_ID, JANITOR_ENABLED, JANITOR_INTERVAL_MS, LOG_LEVEL, NODE_ENV, API_KEYS, JWT_SECRET, DASHBOARD_USER, DASHBOARD_PASSWORD). Updated quickstart instructions. Trade-offs vs BullMQ section explaining architectural differences.",
     "Step 2 - Verify the Mermaid diagram renders correctly by checking syntax (graph TD or flowchart TD format with proper node definitions and edges)."
@@ -19,5 +19,5 @@
     "Read the README.md and confirm all sections are present and Mermaid syntax is valid"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "Documentation-only change. Mermaid diagram uses flowchart TD format with subgraph for worker internals. All acceptance criteria sections present: architecture diagram, phase 1-6 features, API reference table, configuration table, quickstart guide, trade-offs vs BullMQ."
 }
