@@ -47,12 +47,13 @@ export async function insertPendingJob(
     jobName: string;
     payload: unknown;
     maxAttempts: number;
+    idempotencyKey?: string;
   },
 ): Promise<void> {
   await pool.query(
-    `INSERT INTO jobs (id, queue_name, job_name, payload, status, max_attempts)
-     VALUES ($1, $2, $3, $4, 'pending', $5)`,
-    [job.id, job.queueName, job.jobName, JSON.stringify(job.payload), job.maxAttempts],
+    `INSERT INTO jobs (id, queue_name, job_name, payload, status, max_attempts, idempotency_key)
+     VALUES ($1, $2, $3, $4, 'pending', $5, $6)`,
+    [job.id, job.queueName, job.jobName, JSON.stringify(job.payload), job.maxAttempts, job.idempotencyKey ?? null],
   );
 }
 
@@ -93,6 +94,37 @@ export async function markJobFailed(
             error_message = $2
       WHERE id = $1`,
     [jobId, errorMessage],
+  );
+}
+
+/** Mark a job 'dlq' (dead-letter) and persist the error string. */
+export async function markJobDlq(
+  pool: pg.Pool,
+  jobId: string,
+  errorMessage: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE jobs
+        SET status = 'dlq',
+            completed_at = NOW(),
+            error_message = $2
+      WHERE id = $1`,
+    [jobId, errorMessage],
+  );
+}
+
+/** Reset a job back to 'pending' for retry, clearing timing fields. */
+export async function markJobPendingForRetry(
+  pool: pg.Pool,
+  jobId: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE jobs
+        SET status = 'pending',
+            started_at = NULL,
+            completed_at = NULL
+      WHERE id = $1`,
+    [jobId],
   );
 }
 

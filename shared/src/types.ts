@@ -42,6 +42,8 @@ export interface EnqueueOptions {
    * accepts it now so we don't change the producer signature later.
    */
   maxAttempts?: number;
+  /** Optional idempotency key to prevent duplicate job creation. */
+  idempotencyKey?: string | undefined;
 }
 
 /**

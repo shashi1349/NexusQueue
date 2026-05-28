@@ -7,6 +7,8 @@ export {
   markJobActive,
   markJobCompleted,
   markJobFailed,
+  markJobDlq,
+  markJobPendingForRetry,
   getJob,
   type Pool,
 } from './db.js';

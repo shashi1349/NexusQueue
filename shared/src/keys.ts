@@ -23,4 +23,13 @@ export const redisKeys = {
 
   /** Set of all queue names we have ever seen — used by GET /queues. */
   queueRegistry: `${PREFIX}:queues`,
+
+  /** List of job IDs currently being processed by a specific worker. */
+  processing: (workerId: string) => `${PREFIX}:processing:${workerId}`,
+
+  /** Dead-letter queue list for a specific queue. */
+  dlq: (queueName: string) => `${PREFIX}:dlq:${queueName}`,
+
+  /** Idempotency lookup key. */
+  idempotency: (key: string) => `${PREFIX}:idem:${key}`,
 } as const;
