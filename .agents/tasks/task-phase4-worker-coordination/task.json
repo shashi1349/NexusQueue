@@ -9,6 +9,6 @@
     "tests": "pass",
     "test_quality": "pass",
     "docker_build": "skipped",
-    "summary": "npm run build succeeds (all 3 workspaces). npm test passes 61/61 tests (10 phase1 + 9 phase2 + 21 phase3 + 21 phase4). All phase4 tests exercise real logic: heartbeat key existence/TTL/timestamp, janitor dead-worker detection with re-enqueue, graceful shutdown cleanup, concurrent processing with max-concurrency tracking."
+    "summary": "npm run build succeeds (all 3 workspaces). npm test passes 61/61 tests (10 phase1 + 9 phase2 + 21 phase3 + 21 phase4). Post-review fixes applied: janitor overlap prevention (ticking flag), error handling (try/catch with logging), and efficient slot-freeing (Promise.race replaces 50ms polling)."
   }
 }
