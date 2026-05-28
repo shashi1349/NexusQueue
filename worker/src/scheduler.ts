@@ -57,18 +57,19 @@ export class Scheduler {
       const dueJobs = await this.deps.redis.zrangebyscore(delayedKey, '-inf', String(now));
 
       for (const jobId of dueJobs) {
+        // Guard against concurrent schedulers: ZREM first, only proceed if
+        // we actually removed the entry (result >= 1). This prevents double-promote.
+        const removed = await this.deps.redis.zrem(delayedKey, jobId);
+        if (removed === 0) continue;
+
         // Read the job's priority to route to the correct queue.
         const priority = await this.deps.redis.hget(redisKeys.job(jobId), 'priority') ?? 'normal';
         const targetList = priority === 'normal'
           ? redisKeys.queue(queue)
           : redisKeys.queuePriority(queue, priority);
 
-        // Atomic: remove from delayed, push to queue, update status.
-        const multi = this.deps.redis.multi();
-        multi.zrem(delayedKey, jobId);
-        multi.lpush(targetList, jobId);
-        multi.hset(redisKeys.job(jobId), { status: 'pending' });
-        await multi.exec();
+        await this.deps.redis.lpush(targetList, jobId);
+        await this.deps.redis.hset(redisKeys.job(jobId), { status: 'pending' });
       }
     }
   }
@@ -80,6 +81,11 @@ export class Scheduler {
     );
 
     for (const cronId of dueEntries) {
+      // Guard against concurrent schedulers: ZREM first, only proceed if
+      // we actually removed the entry (result >= 1). This prevents double-fire.
+      const removed = await this.deps.redis.zrem(redisKeys.cronSchedule, cronId);
+      if (removed === 0) continue;
+
       const defRaw = await this.deps.redis.hgetall(redisKeys.cronDef(cronId));
       if (!defRaw || !defRaw.cronExpression) continue;
 
@@ -89,7 +95,7 @@ export class Scheduler {
       const next = interval.next();
       const nextMs = next.getTime();
 
-      // Re-schedule with new score.
+      // Re-schedule with new score (for the next occurrence).
       await this.deps.redis.zadd(redisKeys.cronSchedule, String(nextMs), cronId);
 
       // Enqueue the cron job: push to the target queue.
@@ -107,6 +113,14 @@ export class Scheduler {
       const targetList = priority === 'normal'
         ? redisKeys.queue(queueName)
         : redisKeys.queuePriority(queueName, priority);
+
+      // Insert into Postgres so cron-fired jobs have an audit trail and
+      // GET /jobs/:id works for them.
+      await this.deps.pg.query(
+        `INSERT INTO jobs (id, queue_name, job_name, payload, status, max_attempts, priority)
+         VALUES ($1, $2, $3, $4, 'pending', $5, $6)`,
+        [id, queueName, jobName, JSON.stringify(payload), Number(maxAttempts), priority],
+      );
 
       const multi = this.deps.redis.multi();
       multi.sadd(redisKeys.queueRegistry, queueName);

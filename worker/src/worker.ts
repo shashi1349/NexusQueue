@@ -74,6 +74,11 @@ export class Worker {
    * Every 10 pulls cycle: indices 0-5 try high, 6-8 try normal, 9 tries low.
    * If the target priority queue is empty, fall through to other priorities.
    * If all empty, do BLMOVE on normal queue with 5s timeout.
+   *
+   * Known limitation: When only high-priority jobs exist and the rotation points
+   * to normal or low first, 1-2 wasted rpoplpush round-trips occur before finding
+   * the high-priority job. This is functionally correct and only matters at very
+   * high throughput where those extra Redis calls become significant.
    */
   private getPriorityOrder(): Array<'high' | 'normal' | 'low'> {
     const idx = this.pullIndex % 10;
@@ -144,13 +149,16 @@ export class Worker {
         rateConfig,
       );
       if (!result.allowed) {
-        // Push the job back to the front of its priority queue and sleep.
+        // Push the job back to the front of its priority queue and remove from
+        // processing list atomically to avoid windows where job is in both places.
         const priority = hash.priority ?? 'normal';
         const targetList = priority === 'normal'
           ? redisKeys.queue(queueName)
           : redisKeys.queuePriority(queueName, priority);
-        await this.deps.redis.lpush(targetList, jobId);
-        await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
+        const multi = this.deps.redis.multi();
+        multi.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
+        multi.lpush(targetList, jobId);
+        await multi.exec();
         await new Promise((r) => setTimeout(r, result.retryAfterMs));
         return;
       }
@@ -206,9 +214,6 @@ export class Worker {
   }
 
   private async handleFailure(jobId: string, errorMessage: string): Promise<void> {
-    // Remove from processing list first.
-    await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
-
     // Get current state from Redis hash.
     const hash = await this.deps.redis.hgetall(redisKeys.job(jobId));
     const attempts = Number(hash.attempts ?? '0');
@@ -224,8 +229,11 @@ export class Worker {
         errorMessage,
       });
       await this.deps.redis.lpush(redisKeys.dlq(queueName), jobId);
+      // Remove from processing list after durable write.
+      await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
     } else {
       // Retry path: ZADD to delayed sorted set with exponential backoff.
+      // ZADD first so job is never lost if we crash between steps.
       const delay = Math.min(1000 * Math.pow(2, attempts - 1), 30000);
       const dueAt = Date.now() + delay;
       await markJobDelayed(this.deps.pg, jobId);
@@ -236,6 +244,8 @@ export class Worker {
         errorMessage: '',
       });
       await this.deps.redis.zadd(redisKeys.delayed(queueName), String(dueAt), jobId);
+      // Remove from processing list only after ZADD succeeds.
+      await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
     }
   }
 }

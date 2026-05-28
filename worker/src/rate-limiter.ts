@@ -77,7 +77,12 @@ end
 
   /**
    * Non-Lua fallback using HGETALL + HSET.
-   * Used in test environments where Lua eval is not supported.
+   * Used in test environments where Lua eval is not supported (ioredis-mock).
+   *
+   * Known limitation: This fallback is non-atomic under concurrency. Two workers
+   * can both read the same token count and both allow, exceeding the configured
+   * rate. In production the Lua checkLimit() path should be used for atomicity.
+   * The fallback exists solely because ioredis-mock does not support EVAL/EVALSHA.
    */
   async checkLimitFallback(
     redis: Redis,
