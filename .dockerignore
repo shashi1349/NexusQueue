@@ -1,0 +1,15 @@
+node_modules
+.git
+dist
+*.log
+.env
+.env.*
+.volumes
+coverage
+.agents
+k6
+tests
+examples
+.github
+*.md
+!package*.json

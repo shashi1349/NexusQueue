@@ -1,0 +1,101 @@
+services:
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - redis-data:/data
+    networks:
+      - internal
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-nexus}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nexus}
+      POSTGRES_DB: ${POSTGRES_DB:-nexusqueue}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-nexus} -d ${POSTGRES_DB:-nexusqueue}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/postgres:/docker-entrypoint-initdb.d:ro
+    networks:
+      - internal
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    ports:
+      - "${SERVER_PORT:-3000}:3000"
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD:-nexus}@postgres:5432/${POSTGRES_DB:-nexusqueue}
+      SERVER_PORT: "3000"
+      SERVER_HOST: "0.0.0.0"
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      API_KEYS: ${API_KEYS:-}
+      JWT_SECRET: ${JWT_SECRET:-}
+      DASHBOARD_USER: ${DASHBOARD_USER:-}
+      DASHBOARD_PASSWORD: ${DASHBOARD_PASSWORD:-}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+      - public
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    deploy:
+      replicas: 3
+    environment:
+      REDIS_URL: redis://redis:6379
+      DATABASE_URL: postgres://${POSTGRES_USER:-nexus}:${POSTGRES_PASSWORD:-nexus}@postgres:5432/${POSTGRES_DB:-nexusqueue}
+      WORKER_QUEUE: ${WORKER_QUEUE:-default}
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: dashboard/Dockerfile
+    ports:
+      - "${DASHBOARD_PORT:-80}:80"
+    networks:
+      - public
+    restart: unless-stopped
+
+networks:
+  internal:
+    driver: bridge
+  public:
+    driver: bridge
+
+volumes:
+  redis-data:
+  postgres-data:
