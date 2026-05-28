@@ -1,3 +1,4 @@
+import http from 'node:http';
 import { createPgPool, createRedisClient, createLogger } from '@nexusqueue/shared';
 import { loadWorkerConfig } from './config.js';
 import { Worker } from './worker.js';
@@ -54,6 +55,19 @@ async function main(): Promise<void> {
     { workerId: cfg.workerId, queue: cfg.queue, concurrency: cfg.concurrency, handlers: ['echo'] },
     'worker started',
   );
+
+  // Minimal HTTP health server so the worker can run as a Render Web Service
+  // (free tier doesn't support Background Workers).
+  const healthPort = Number(process.env.HEALTH_PORT ?? '0');
+  if (healthPort > 0) {
+    const healthServer = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', workerId: cfg.workerId }));
+    });
+    healthServer.listen(healthPort, () => {
+      logger.info({ port: healthPort }, 'worker health endpoint listening');
+    });
+  }
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'received shutdown signal, draining...');

@@ -45,6 +45,12 @@ USER app
 
 ENV WORKER_QUEUE=default \
     WORKER_CONCURRENCY=5 \
-    WORKER_ID=worker-1
+    WORKER_ID=worker-1 \
+    HEALTH_PORT=10000
+
+EXPOSE 10000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:10000/ || exit 1
 
 CMD ["node", "worker/dist/index.js"]
