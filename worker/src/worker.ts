@@ -14,8 +14,7 @@ import { RateLimiter } from './rate-limiter.js';
 /**
  * Worker -- the consumer side of NexusQueue.
  *
- * Phase 3 model: weighted fair priority pulling, rate limiting,
- * and retry via delayed sorted set (instead of setTimeout).
+ * Phase 4 model: concurrent job processing, heartbeats, graceful shutdown.
  */
 
 export interface WorkerDeps {
@@ -23,21 +22,26 @@ export interface WorkerDeps {
   pg: Pool;
   queue: string;
   workerId: string;
+  concurrency?: number;
 }
 
 export class Worker {
   private readonly registry = new HandlerRegistry();
   private readonly blockingRedis: Redis;
+  private readonly concurrency: number;
   private running = false;
   private stopRequested = false;
   private currentLoop: Promise<void> | null = null;
   private pullIndex = 0;
   private rateLimits = new Map<string, RateLimitConfig>();
   private rateLimiter = new RateLimiter();
+  private activeJobs = new Set<Promise<void>>();
+  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(private readonly deps: WorkerDeps) {
     // Dedicated client for BLMOVE so we don't block other commands.
     this.blockingRedis = deps.redis.duplicate();
+    this.concurrency = deps.concurrency ?? 5;
   }
 
   register<TPayload, TResult>(
@@ -54,19 +58,123 @@ export class Worker {
     return this;
   }
 
-  /** Starts the pull loop. Returns immediately; the loop runs in background. */
-  start(): void {
+  /** Starts the pull loop and registers the worker. Returns immediately; the loop runs in background. */
+  async start(): Promise<void> {
     if (this.running) throw new Error('worker already started');
     this.running = true;
+    this.stopRequested = false;
+
+    // Register in worker set.
+    await this.deps.redis.sadd(redisKeys.workerRegistry, this.deps.workerId);
+
+    // Initial heartbeat.
+    await this.deps.redis.set(
+      redisKeys.heartbeat(this.deps.workerId),
+      String(Date.now()),
+      'EX',
+      15,
+    );
+
+    // Worker metadata.
+    await this.deps.redis.hset(redisKeys.workerMeta(this.deps.workerId), {
+      status: 'active',
+      queue: this.deps.queue,
+      startedAt: new Date().toISOString(),
+      currentJobs: '0',
+    });
+
+    // Heartbeat interval.
+    this.heartbeatInterval = setInterval(() => {
+      void this.writeHeartbeat();
+    }, 5000);
+
     this.currentLoop = this.loop();
   }
 
-  /** Signal the loop to stop after the current iteration and await it. */
+  /** Signal the loop to stop, drain in-flight jobs, clean up keys. */
   async stop(): Promise<void> {
     this.stopRequested = true;
+
+    // Update status to draining.
+    await this.deps.redis.hset(redisKeys.workerMeta(this.deps.workerId), {
+      status: 'draining',
+    });
+
+    // Wait for in-flight jobs with 30s timeout.
+    if (this.activeJobs.size > 0) {
+      const drainPromise = Promise.allSettled([...this.activeJobs]);
+      const timeoutPromise = new Promise<'timeout'>((resolve) =>
+        setTimeout(() => resolve('timeout'), 30000),
+      );
+      const result = await Promise.race([drainPromise, timeoutPromise]);
+      if (result === 'timeout') {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `[worker:${this.deps.workerId}] shutdown timeout: ${this.activeJobs.size} jobs still in-flight`,
+        );
+      }
+    }
+
+    // Wait for loop to exit.
     if (this.currentLoop) await this.currentLoop;
+
+    // Deregister from worker set.
+    await this.deps.redis.srem(redisKeys.workerRegistry, this.deps.workerId);
+
+    // Delete heartbeat and metadata keys.
+    await this.deps.redis.del(redisKeys.heartbeat(this.deps.workerId));
+    await this.deps.redis.del(redisKeys.workerMeta(this.deps.workerId));
+
+    // Clear heartbeat interval.
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+
     await this.blockingRedis.quit();
     this.running = false;
+  }
+
+  /**
+   * Process all available jobs without blocking (for testing).
+   * Uses rpoplpush only (no BLMOVE), processes up to concurrency jobs at a time.
+   */
+  async processAvailable(): Promise<void> {
+    const processingKey = redisKeys.processing(this.deps.workerId);
+    let foundJob = true;
+    while (foundJob) {
+      foundJob = false;
+      // Wait for slots to be available.
+      while (this.activeJobs.size >= this.concurrency) {
+        await Promise.race([...this.activeJobs]);
+      }
+
+      const jobId = await this.pullJobNonBlocking(processingKey);
+      if (jobId) {
+        foundJob = true;
+        const jobPromise = this.processOne(jobId).then(
+          () => { this.activeJobs.delete(jobPromise); },
+          () => { this.activeJobs.delete(jobPromise); },
+        );
+        this.activeJobs.add(jobPromise);
+      }
+    }
+    // Wait for remaining active jobs to finish.
+    if (this.activeJobs.size > 0) {
+      await Promise.allSettled([...this.activeJobs]);
+    }
+  }
+
+  private async writeHeartbeat(): Promise<void> {
+    await this.deps.redis.set(
+      redisKeys.heartbeat(this.deps.workerId),
+      String(Date.now()),
+      'EX',
+      15,
+    );
+    await this.deps.redis.hset(redisKeys.workerMeta(this.deps.workerId), {
+      currentJobs: String(this.activeJobs.size),
+    });
   }
 
   /**
@@ -74,11 +182,6 @@ export class Worker {
    * Every 10 pulls cycle: indices 0-5 try high, 6-8 try normal, 9 tries low.
    * If the target priority queue is empty, fall through to other priorities.
    * If all empty, do BLMOVE on normal queue with 5s timeout.
-   *
-   * Known limitation: When only high-priority jobs exist and the rotation points
-   * to normal or low first, 1-2 wasted rpoplpush round-trips occur before finding
-   * the high-priority job. This is functionally correct and only matters at very
-   * high throughput where those extra Redis calls become significant.
    */
   private getPriorityOrder(): Array<'high' | 'normal' | 'low'> {
     const idx = this.pullIndex % 10;
@@ -92,9 +195,20 @@ export class Worker {
     const processingKey = redisKeys.processing(this.deps.workerId);
     while (!this.stopRequested) {
       try {
+        // Only pull when we have available concurrency slots.
+        if (this.activeJobs.size >= this.concurrency) {
+          await new Promise((r) => setTimeout(r, 50));
+          continue;
+        }
+
         const jobId = await this.pullJob(processingKey);
         if (!jobId) continue;
-        await this.processOne(jobId);
+
+        const jobPromise = this.processOne(jobId).then(
+          () => { this.activeJobs.delete(jobPromise); },
+          () => { this.activeJobs.delete(jobPromise); },
+        );
+        this.activeJobs.add(jobPromise);
       } catch (err) {
         // Loop must never die from a transient error. Log + continue.
         // eslint-disable-next-line no-console
@@ -103,6 +217,21 @@ export class Worker {
         await new Promise((r) => setTimeout(r, 500));
       }
     }
+  }
+
+  private async pullJobNonBlocking(processingKey: string): Promise<string | null> {
+    const queueName = this.deps.queue;
+    const priorities = this.getPriorityOrder();
+
+    for (const priority of priorities) {
+      const sourceList = priority === 'normal'
+        ? redisKeys.queue(queueName)
+        : redisKeys.queuePriority(queueName, priority);
+
+      const jobId = await this.deps.redis.rpoplpush(sourceList, processingKey);
+      if (jobId) return jobId;
+    }
+    return null;
   }
 
   private async pullJob(processingKey: string): Promise<string | null> {

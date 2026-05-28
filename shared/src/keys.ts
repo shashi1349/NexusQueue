@@ -47,4 +47,13 @@ export const redisKeys = {
 
   /** Hash holding rate limit state for a queue. */
   rateLimit: (queueName: string) => `${PREFIX}:ratelimit:${queueName}`,
+
+  /** Worker heartbeat key with TTL (value = timestamp). */
+  heartbeat: (workerId: string) => `${PREFIX}:heartbeat:${workerId}`,
+
+  /** Hash holding worker metadata (status, queue, startedAt, currentJobs). */
+  workerMeta: (workerId: string) => `${PREFIX}:worker:${workerId}`,
+
+  /** Set of all active worker IDs. */
+  workerRegistry: `${PREFIX}:workers`,
 } as const;

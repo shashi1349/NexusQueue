@@ -4,6 +4,8 @@ export interface WorkerConfig {
   queue: string;
   concurrency: number;
   workerId: string;
+  janitorEnabled: boolean;
+  janitorIntervalMs: number;
 }
 
 export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
@@ -16,7 +18,9 @@ export function loadWorkerConfig(env: NodeJS.ProcessEnv = process.env): WorkerCo
     redisUrl,
     databaseUrl,
     queue: env.WORKER_QUEUE ?? 'default',
-    concurrency: Number(env.WORKER_CONCURRENCY ?? 1),
+    concurrency: Number(env.WORKER_CONCURRENCY ?? 5),
     workerId: env.WORKER_ID ?? `worker-${process.pid}`,
+    janitorEnabled: env.JANITOR_ENABLED !== 'false',
+    janitorIntervalMs: Number(env.JANITOR_INTERVAL_MS ?? 30000),
   };
 }

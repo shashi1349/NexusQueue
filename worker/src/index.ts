@@ -2,6 +2,7 @@ import { createPgPool, createRedisClient } from '@nexusqueue/shared';
 import { loadWorkerConfig } from './config.js';
 import { Worker } from './worker.js';
 import { Scheduler } from './scheduler.js';
+import { Janitor } from './janitor.js';
 
 /**
  * Worker entry point.
@@ -12,6 +13,8 @@ import { Scheduler } from './scheduler.js';
  *
  * Phase 3 starts a Scheduler alongside the Worker (same process,
  * separate polling loop) to promote delayed jobs and fire cron jobs.
+ *
+ * Phase 4 adds the Janitor for dead-worker detection and job recovery.
  */
 async function main(): Promise<void> {
   const cfg = loadWorkerConfig();
@@ -23,6 +26,7 @@ async function main(): Promise<void> {
     pg,
     queue: cfg.queue,
     workerId: cfg.workerId,
+    concurrency: cfg.concurrency,
   });
 
   worker.register('echo', async (payload, ctx) => {
@@ -38,16 +42,24 @@ async function main(): Promise<void> {
   const scheduler = new Scheduler({ redis, pg });
   scheduler.start();
 
-  worker.start();
+  // Conditionally start janitor.
+  let janitor: Janitor | null = null;
+  if (cfg.janitorEnabled) {
+    janitor = new Janitor({ redis, pg, intervalMs: cfg.janitorIntervalMs });
+    janitor.start();
+  }
+
+  await worker.start();
   // eslint-disable-next-line no-console
   console.log(
-    `[worker:${cfg.workerId}] listening on queue="${cfg.queue}" handlers=[echo]`,
+    `[worker:${cfg.workerId}] listening on queue="${cfg.queue}" concurrency=${cfg.concurrency} handlers=[echo]`,
   );
 
   const shutdown = async (signal: string): Promise<void> => {
     // eslint-disable-next-line no-console
     console.log(`[worker:${cfg.workerId}] received ${signal}, draining...`);
     scheduler.stop();
+    if (janitor) janitor.stop();
     await worker.stop();
     await Promise.all([redis.quit(), pg.end()]);
     process.exit(0);
@@ -67,3 +79,4 @@ export { HandlerRegistry, type JobHandler, type HandlerContext } from './handler
 export { Scheduler } from './scheduler.js';
 export { CronManager, type CronJobDef } from './cron.js';
 export { RateLimiter } from './rate-limiter.js';
+export { Janitor } from './janitor.js';
