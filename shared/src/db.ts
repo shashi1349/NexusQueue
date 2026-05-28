@@ -152,3 +152,38 @@ export async function getJob(pool: pg.Pool, jobId: string): Promise<Job | null> 
     completedAt: row.completed_at ? row.completed_at.toISOString() : null,
   };
 }
+
+/** Insert a job in 'delayed' state with a delayed_until timestamp. */
+export async function insertDelayedJob(
+  pool: pg.Pool,
+  job: {
+    id: string;
+    queueName: string;
+    jobName: string;
+    payload: unknown;
+    maxAttempts: number;
+    delayedUntil: Date;
+    priority?: string;
+  },
+): Promise<void> {
+  await pool.query(
+    `INSERT INTO jobs (id, queue_name, job_name, payload, status, max_attempts, delayed_until, priority)
+     VALUES ($1, $2, $3, $4, 'delayed', $5, $6, $7)`,
+    [job.id, job.queueName, job.jobName, JSON.stringify(job.payload), job.maxAttempts, job.delayedUntil, job.priority ?? 'normal'],
+  );
+}
+
+/** Mark a job as 'delayed' (used when retry puts job in delayed sorted set). */
+export async function markJobDelayed(
+  pool: pg.Pool,
+  jobId: string,
+): Promise<void> {
+  await pool.query(
+    `UPDATE jobs
+        SET status = 'delayed',
+            started_at = NULL,
+            completed_at = NULL
+      WHERE id = $1`,
+    [jobId],
+  );
+}

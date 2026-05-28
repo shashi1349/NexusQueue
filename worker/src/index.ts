@@ -1,6 +1,7 @@
 import { createPgPool, createRedisClient } from '@nexusqueue/shared';
 import { loadWorkerConfig } from './config.js';
 import { Worker } from './worker.js';
+import { Scheduler } from './scheduler.js';
 
 /**
  * Worker entry point.
@@ -9,8 +10,8 @@ import { Worker } from './worker.js';
  * run `npm run dev:worker` in one terminal and `npm run dev:server` in
  * another, or use the smoke test which spins both up in-process.
  *
- * Phase 1 ships ONE example handler ("echo") so you can see end-to-end
- * flow. Real apps register their own handlers before calling start().
+ * Phase 3 starts a Scheduler alongside the Worker (same process,
+ * separate polling loop) to promote delayed jobs and fire cron jobs.
  */
 async function main(): Promise<void> {
   const cfg = loadWorkerConfig();
@@ -33,6 +34,10 @@ async function main(): Promise<void> {
     return { echoed: payload };
   });
 
+  // Start the scheduler (promotes delayed jobs, fires cron).
+  const scheduler = new Scheduler({ redis, pg });
+  scheduler.start();
+
   worker.start();
   // eslint-disable-next-line no-console
   console.log(
@@ -42,6 +47,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     // eslint-disable-next-line no-console
     console.log(`[worker:${cfg.workerId}] received ${signal}, draining...`);
+    scheduler.stop();
     await worker.stop();
     await Promise.all([redis.quit(), pg.end()]);
     process.exit(0);
@@ -58,3 +64,6 @@ main().catch((err) => {
 
 export { Worker } from './worker.js';
 export { HandlerRegistry, type JobHandler, type HandlerContext } from './handlers.js';
+export { Scheduler } from './scheduler.js';
+export { CronManager, type CronJobDef } from './cron.js';
+export { RateLimiter } from './rate-limiter.js';

@@ -33,6 +33,13 @@ export interface Job<TPayload = unknown> {
   completedAt: string | null;
 }
 
+export type Priority = 'high' | 'normal' | 'low';
+
+export interface RateLimitConfig {
+  maxTokens: number;
+  refillRate: number;
+}
+
 export interface EnqueueOptions {
   /** Logical queue name. Defaults to "default". */
   queue?: string;
@@ -44,6 +51,10 @@ export interface EnqueueOptions {
   maxAttempts?: number;
   /** Optional idempotency key to prevent duplicate job creation. */
   idempotencyKey?: string | undefined;
+  /** Delay in milliseconds before the job becomes visible to workers. */
+  delay?: number;
+  /** Priority level for the job. Defaults to 'normal'. */
+  priority?: Priority;
 }
 
 /**

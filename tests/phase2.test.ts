@@ -8,7 +8,7 @@
  * Worker logic is exercised via processOne() directly since ioredis-mock
  * does not support BLMOVE.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import RedisMock from 'ioredis-mock';
 import { redisKeys } from '@nexusqueue/shared';
 import { Producer } from '../server/src/producer.js';
@@ -107,7 +107,6 @@ describe('Phase 2 -- Retry with exponential backoff', () => {
   let worker: Worker;
 
   beforeEach(() => {
-    vi.useFakeTimers();
     redis = new RedisMock();
     pool = createMockPool();
     worker = new Worker({
@@ -116,10 +115,6 @@ describe('Phase 2 -- Retry with exponential backoff', () => {
       queue: 'test',
       workerId: 'w1',
     });
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it('retries job with exponential backoff when attempts < maxAttempts', async () => {
@@ -134,28 +129,25 @@ describe('Phase 2 -- Retry with exponential backoff', () => {
 
     await (worker as any).processOne(jobId);
 
-    // Redis hash: status is 'pending', attempts incremented to '1'.
+    // Redis hash: status is 'delayed', attempts incremented to '1'.
     const hash = await redis.hgetall(redisKeys.job(jobId));
-    expect(hash.status).toBe('pending');
+    expect(hash.status).toBe('delayed');
     expect(hash.attempts).toBe('1');
 
-    // Job is NOT yet in the queue list (delay hasn't elapsed).
-    const queueBefore = await redis.lrange(redisKeys.queue('test'), 0, -1);
-    expect(queueBefore).not.toContain(jobId);
+    // Job is in the delayed sorted set (not the queue list).
+    const delayedMembers = await redis.zrangebyscore(redisKeys.delayed('test'), '-inf', '+inf');
+    expect(delayedMembers).toContain(jobId);
 
-    // Advance timers by 1000ms (first retry delay = 1000 * 2^0 = 1000ms).
-    await vi.advanceTimersByTimeAsync(1000);
+    // Job is NOT in the queue list.
+    const queueList = await redis.lrange(redisKeys.queue('test'), 0, -1);
+    expect(queueList).not.toContain(jobId);
 
-    // Job should now be re-enqueued.
-    const queueAfter = await redis.lrange(redisKeys.queue('test'), 0, -1);
-    expect(queueAfter).toContain(jobId);
-
-    // Postgres mock received a query for marking pending for retry.
+    // Postgres received a query for marking delayed.
     const pgTexts = pool.queries.map((q) => q.text);
-    expect(pgTexts.some((t) => t.includes("status = 'pending'"))).toBe(true);
+    expect(pgTexts.some((t) => t.includes("status = 'delayed'"))).toBe(true);
   });
 
-  it('second retry uses longer backoff delay', async () => {
+  it('second retry uses longer backoff delay (higher score)', async () => {
     const jobId = 'retry-002';
     // attempts='1' means this is the second attempt.
     await seedJob(redis, jobId, 'flaky', {}, { maxAttempts: '3', attempts: '1' });
@@ -166,22 +158,24 @@ describe('Phase 2 -- Retry with exponential backoff', () => {
     // Simulate BLMOVE.
     await redis.lpush(redisKeys.processing('w1'), jobId);
 
+    const before = Date.now();
     await (worker as any).processOne(jobId);
+    const after = Date.now();
 
-    // Status should be 'pending', attempts incremented to '2'.
+    // Status should be 'delayed', attempts incremented to '2'.
     const hash = await redis.hgetall(redisKeys.job(jobId));
-    expect(hash.status).toBe('pending');
+    expect(hash.status).toBe('delayed');
     expect(hash.attempts).toBe('2');
 
-    // Advance by 1999ms - NOT enough (need 2000ms = 1000 * 2^1).
-    await vi.advanceTimersByTimeAsync(1999);
-    const queueBefore = await redis.lrange(redisKeys.queue('test'), 0, -1);
-    expect(queueBefore).not.toContain(jobId);
+    // Job is in the delayed sorted set.
+    const delayedMembers = await redis.zrangebyscore(redisKeys.delayed('test'), '-inf', '+inf');
+    expect(delayedMembers).toContain(jobId);
 
-    // Advance 1 more ms (total 2000ms).
-    await vi.advanceTimersByTimeAsync(1);
-    const queueAfter = await redis.lrange(redisKeys.queue('test'), 0, -1);
-    expect(queueAfter).toContain(jobId);
+    // Verify the score is approximately now + 2000ms (1000 * 2^1).
+    const score = await redis.zscore(redisKeys.delayed('test'), jobId);
+    const scoreNum = Number(score);
+    expect(scoreNum).toBeGreaterThanOrEqual(before + 2000);
+    expect(scoreNum).toBeLessThanOrEqual(after + 2000);
   });
 });
 

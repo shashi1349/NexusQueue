@@ -4,29 +4,18 @@ import {
   markJobActive,
   markJobCompleted,
   markJobDlq,
-  markJobPendingForRetry,
+  markJobDelayed,
   type Pool,
+  type RateLimitConfig,
 } from '@nexusqueue/shared';
 import { HandlerRegistry, type JobHandler } from './handlers.js';
+import { RateLimiter } from './rate-limiter.js';
 
 /**
  * Worker -- the consumer side of NexusQueue.
  *
- * Phase 2 model: BLMOVE-based at-LEAST-once delivery with per-worker
- * processing lists, explicit ACK, exponential backoff retry, and DLQ.
- *
- * Why BLMOVE instead of BRPOP?
- *   - BRPOP atomically REMOVES the item from the queue. If the worker
- *     crashes between pop and completion, the job is lost.
- *   - BLMOVE atomically moves the item from the queue list to a
- *     per-worker "processing" list. If the worker crashes, a janitor
- *     can scan the processing list and re-enqueue stale items.
- *
- * On success: LREM from processing list (ACK) + mark completed.
- * On failure with retries remaining: LREM from processing list,
- *   exponential backoff, then re-push to queue.
- * On failure with no retries left: LREM from processing list,
- *   move to DLQ.
+ * Phase 3 model: weighted fair priority pulling, rate limiting,
+ * and retry via delayed sorted set (instead of setTimeout).
  */
 
 export interface WorkerDeps {
@@ -42,6 +31,9 @@ export class Worker {
   private running = false;
   private stopRequested = false;
   private currentLoop: Promise<void> | null = null;
+  private pullIndex = 0;
+  private rateLimits = new Map<string, RateLimitConfig>();
+  private rateLimiter = new RateLimiter();
 
   constructor(private readonly deps: WorkerDeps) {
     // Dedicated client for BLMOVE so we don't block other commands.
@@ -53,6 +45,12 @@ export class Worker {
     handler: JobHandler<TPayload, TResult>,
   ): this {
     this.registry.register(jobName, handler);
+    return this;
+  }
+
+  /** Set a rate limit configuration for a queue. */
+  setRateLimit(queue: string, config: RateLimitConfig): this {
+    this.rateLimits.set(queue, config);
     return this;
   }
 
@@ -71,14 +69,25 @@ export class Worker {
     this.running = false;
   }
 
+  /**
+   * Weighted fair priority pull pattern.
+   * Every 10 pulls cycle: indices 0-5 try high, 6-8 try normal, 9 tries low.
+   * If the target priority queue is empty, fall through to other priorities.
+   * If all empty, do BLMOVE on normal queue with 5s timeout.
+   */
+  private getPriorityOrder(): Array<'high' | 'normal' | 'low'> {
+    const idx = this.pullIndex % 10;
+    this.pullIndex++;
+    if (idx <= 5) return ['high', 'normal', 'low'];
+    if (idx <= 8) return ['normal', 'high', 'low'];
+    return ['low', 'high', 'normal'];
+  }
+
   private async loop(): Promise<void> {
-    const queueKey = redisKeys.queue(this.deps.queue);
     const processingKey = redisKeys.processing(this.deps.workerId);
     while (!this.stopRequested) {
       try {
-        const jobId = await this.blockingRedis.call(
-          'BLMOVE', queueKey, processingKey, 'RIGHT', 'LEFT', '5',
-        ) as string | null;
+        const jobId = await this.pullJob(processingKey);
         if (!jobId) continue;
         await this.processOne(jobId);
       } catch (err) {
@@ -91,6 +100,29 @@ export class Worker {
     }
   }
 
+  private async pullJob(processingKey: string): Promise<string | null> {
+    const queueName = this.deps.queue;
+    const priorities = this.getPriorityOrder();
+
+    // Try non-blocking pull from priority queues.
+    for (const priority of priorities) {
+      const sourceList = priority === 'normal'
+        ? redisKeys.queue(queueName)
+        : redisKeys.queuePriority(queueName, priority);
+
+      // Use rpoplpush (atomic move from source to processing list).
+      const jobId = await this.deps.redis.rpoplpush(sourceList, processingKey);
+      if (jobId) return jobId;
+    }
+
+    // All priority queues empty: blocking wait on normal queue.
+    const jobId = await this.blockingRedis.call(
+      'BLMOVE', redisKeys.queue(queueName), processingKey, 'RIGHT', 'LEFT', '5',
+    ) as string | null;
+
+    return jobId;
+  }
+
   private async processOne(jobId: string): Promise<void> {
     // Load the job hash from Redis (faster than going to Postgres).
     const hash = await this.deps.redis.hgetall(redisKeys.job(jobId));
@@ -100,7 +132,29 @@ export class Worker {
       return;
     }
     const jobName = hash.jobName;
+    const queueName = hash.queueName ?? this.deps.queue;
     const handler = this.registry.get(jobName);
+
+    // Rate limit check before executing handler.
+    const rateConfig = this.rateLimits.get(queueName);
+    if (rateConfig) {
+      const result = await this.rateLimiter.checkLimitFallback(
+        this.deps.redis,
+        queueName,
+        rateConfig,
+      );
+      if (!result.allowed) {
+        // Push the job back to the front of its priority queue and sleep.
+        const priority = hash.priority ?? 'normal';
+        const targetList = priority === 'normal'
+          ? redisKeys.queue(queueName)
+          : redisKeys.queuePriority(queueName, priority);
+        await this.deps.redis.lpush(targetList, jobId);
+        await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
+        await new Promise((r) => setTimeout(r, result.retryAfterMs));
+        return;
+      }
+    }
 
     // Transition to 'active' in BOTH stores. Postgres first so an observer
     // never sees a Redis 'active' with no Postgres row.
@@ -171,18 +225,17 @@ export class Worker {
       });
       await this.deps.redis.lpush(redisKeys.dlq(queueName), jobId);
     } else {
-      // Retry path: exponential backoff then re-enqueue.
+      // Retry path: ZADD to delayed sorted set with exponential backoff.
       const delay = Math.min(1000 * Math.pow(2, attempts - 1), 30000);
-      await markJobPendingForRetry(this.deps.pg, jobId);
+      const dueAt = Date.now() + delay;
+      await markJobDelayed(this.deps.pg, jobId);
       await this.deps.redis.hset(redisKeys.job(jobId), {
-        status: 'pending',
+        status: 'delayed',
         startedAt: '',
         completedAt: '',
         errorMessage: '',
       });
-      setTimeout(() => {
-        this.deps.redis.lpush(redisKeys.queue(queueName), jobId).catch(() => {});
-      }, delay);
+      await this.deps.redis.zadd(redisKeys.delayed(queueName), String(dueAt), jobId);
     }
   }
 }

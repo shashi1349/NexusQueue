@@ -1,0 +1,7 @@
+{
+  "task_id": "task-phase3-scheduling",
+  "task_description": "Implement Phase 3 (Advanced Scheduling) for NexusQueue: delayed jobs via sorted sets, priority queues with weighted fair processing, recurring/cron jobs with cron-parser, and rate limiting via token bucket Lua script. Also refactor retry to use delayed sorted set instead of setTimeout.",
+  "status": "in_progress",
+  "feature_order": ["FEAT-001"],
+  "blocked_reason": null
+}

@@ -1,0 +1,32 @@
+{
+  "project_type": "Node.js distributed task queue engine (monorepo with shared/, server/, worker/)",
+  "language": "TypeScript (ESM, strict mode, NodeNext resolution)",
+  "build_system": "npm workspaces. Build order: shared -> server -> worker. Root package.json orchestrates via npm run build.",
+  "test_framework": "Vitest with globals enabled, 15s timeout. Tests in /tests/ directory at root. Uses ioredis-mock for Redis, manual mock pg Pool for Postgres.",
+  "build_command": "npm run build",
+  "test_command": "npm test",
+  "verification_instructions": "1. Run 'npm run build' (builds all workspaces in order). 2. Run 'npm test' (vitest run). All tests must pass.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "Already cloned and built. Install new deps with --workspace flag, e.g. 'npm install cron-parser --workspace @nexusqueue/worker'",
+  "environment_constraints": "No persistent background services (no real Redis/Postgres). Tests must use ioredis-mock and mock pg Pool. ioredis-mock does NOT support BLMOVE or Lua EVAL/EVALSHA. ioredis-mock DOES support ZADD, ZRANGEBYSCORE, ZREM, LPUSH, RPOP, etc. Rate limiter Lua script must be tested at function level, not via eval. Strict TypeScript: noUncheckedIndexedAccess, exactOptionalPropertyTypes.",
+  "contribution_requirements": "ESM modules with 'type: module'. All imports use .js extension. Follow existing patterns for Redis keys (centralized in shared/src/keys.ts), Postgres DAO functions (shared/src/db.ts), types (shared/src/types.ts).",
+  "key_patterns": "Producer enqueues via MULTI (SADD + HSET + LPUSH). Worker uses BLMOVE for at-least-once delivery. Retry uses setTimeout + re-LPUSH (to be replaced with delayed sorted set). handleFailure checks attempts vs maxAttempts. Tests access private methods via (worker as any).processOne(). Mock pool captures queries array for assertions.",
+  "relevant_files": [
+    "shared/src/keys.ts",
+    "shared/src/types.ts",
+    "shared/src/db.ts",
+    "shared/src/index.ts",
+    "server/src/producer.ts",
+    "server/src/routes.ts",
+    "worker/src/worker.ts",
+    "worker/src/index.ts",
+    "worker/src/handlers.ts",
+    "infra/postgres/002_reliability.sql",
+    "tests/phase1.test.ts",
+    "tests/phase2.test.ts",
+    "vitest.config.ts",
+    "package.json",
+    "worker/package.json"
+  ],
+  "directory_structure": "shared/ = types, Redis keys, DB functions, Redis/PG client factories. server/ = Express REST API + Producer class. worker/ = Worker class + handler registry. tests/ = Vitest test files. infra/postgres/ = SQL migrations. examples/ = smoke test script."
+}

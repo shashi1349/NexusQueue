@@ -1,0 +1,43 @@
+{
+  "id": "FEAT-001",
+  "type": "feat",
+  "description": "Implement all Phase 3 advanced scheduling features: delayed jobs with sorted sets, priority queues with weighted fair processing, recurring/cron jobs, rate limiting with token bucket, plus the scheduler process. Also update retry logic to use the delayed sorted set instead of setTimeout.",
+  "status": "in_progress",
+  "steps": [
+    "Step 1: Install cron-parser in the worker workspace: run 'npm install cron-parser --workspace @nexusqueue/worker'",
+    "Step 2: Update shared/src/types.ts - Add 'delay?: number' and 'priority?: \"high\" | \"normal\" | \"low\"' to EnqueueOptions interface. Add Priority type. Update JobStatus to ensure 'delayed' is included (it already is). Add RateLimitConfig interface: { maxTokens: number; refillRate: number }.",
+    "Step 3: Update shared/src/keys.ts - Add new key functions: delayed(queueName) -> 'nexus:delayed:{queueName}', queuePriority(name, priority) -> 'nexus:queue:{name}:{priority}', cronSchedule -> 'nexus:cron:schedule', cronDef(cronId) -> 'nexus:cron:def:{cronId}', rateLimit(queueName) -> 'nexus:ratelimit:{queueName}'",
+    "Step 4: Update shared/src/db.ts - Add insertDelayedJob function that inserts with status='delayed' and a delayed_until column. Add markJobDelayed function. Export these from shared/src/index.ts.",
+    "Step 5: Create infra/postgres/003_scheduling.sql - ALTER TABLE jobs ADD COLUMN priority TEXT DEFAULT 'normal', ADD COLUMN delayed_until TIMESTAMPTZ.",
+    "Step 6: Update server/src/producer.ts - Modify enqueue() to accept delay and priority options. When delay is provided: ZADD to nexus:delayed:{queueName} with score=Date.now()+delay, set status='delayed' in Redis hash, call insertDelayedJob in Postgres. When priority is provided: LPUSH to nexus:queue:{name}:{priority} instead of nexus:queue:{name}. Store priority in Redis job hash. Default priority is 'normal'.",
+    "Step 7: Update server/src/routes.ts - Add 'delay' (z.number().int().nonnegative().optional()) and 'priority' (z.enum(['high','normal','low']).optional()) to enqueueBodySchema. Pass them through to producer.enqueue options.",
+    "Step 8: Create worker/src/scheduler.ts - Implement Scheduler class with a polling loop (1-second interval). On each tick: (a) For each queue in the registry (SMEMBERS nexus:queues), ZRANGEBYSCORE nexus:delayed:{queue} -inf now to find due jobs. For each due job: MULTI { ZREM from delayed set, LPUSH to the appropriate priority queue list (read priority from job hash), HSET status='pending' }. (b) Check nexus:cron:schedule with ZRANGEBYSCORE -inf now. For each due cron job: read cron def from hash, enqueue via Producer SDK, compute next occurrence with cron-parser, ZADD with new score. The Scheduler takes redis, pg, and an optional Producer instance as deps. Expose start() and stop() methods.",
+    "Step 9: Create worker/src/cron.ts - Implement CronManager class. Methods: addJob({ cronId, jobName, payload, cronExpression, queue, options }) stores the definition in Redis hash nexus:cron:def:{cronId} and ZADDs to nexus:cron:schedule with score = next occurrence. removeJob(cronId) removes from both. listJobs() returns all registered cron jobs. Uses cron-parser to compute next occurrence from cronExpression.",
+    "Step 10: Create worker/src/rate-limiter.ts - Implement RateLimiter class with a Lua script string constant for token bucket. The Lua script: takes key, maxTokens, refillRate, now as args. Calculates elapsed since lastRefill, adds tokens (capped at max), tries to consume 1. Returns [1, 0] if allowed or [0, timeUntilNextToken] if denied. Provide a method checkLimit(redis, queueName, config): Promise<{ allowed: boolean; retryAfterMs: number }>. For the method, use redis.eval() with the Lua script. Also provide a non-Lua fallback method (checkLimitFallback) that uses HGETALL + HSET for environments where eval is not available (tests).",
+    "Step 11: Modify worker/src/worker.ts - (a) Replace the simple BLMOVE loop with weighted fair priority pulling. Add a pull counter (mod 10): positions 0-5 try high, 6-8 try normal, 9 tries low. Use RPOPLPUSH (non-blocking via LMOVE or rpoplpush) from nexus:queue:{name}:{priority} to nexus:processing:{workerId}. If the priority queue is empty, fall through to next priority. If all empty, BLMOVE on the normal queue with 5s timeout. (b) Add rate limiting check before executing handler: if rate limit config is set for the queue and checkLimit returns denied, RPUSH the job back to the front of its priority queue and sleep retryAfterMs. (c) Replace the setTimeout retry logic in handleFailure with ZADD to nexus:delayed:{queueName} with score=Date.now()+delay, and set status to 'delayed' in Redis hash. Remove the setTimeout call entirely. (d) Add setRateLimit(queue, config) method and a schedulerRef for optional scheduler integration. (e) Accept an optional 'queues' array in WorkerDeps (for multi-queue support by priority) or infer from the single queue name.",
+    "Step 12: Update worker/src/index.ts - Import and start the Scheduler alongside the Worker (same process, separate loop). Show an example of how CronManager could be used.",
+    "Step 13: Export new modules from worker package - Export Scheduler, CronManager, RateLimiter from worker/src/index.ts.",
+    "Step 14: Write tests/phase3.test.ts with comprehensive test coverage. Use ioredis-mock for Redis, mock pg Pool. Tests to include: (a) Delayed job: producer with delay option ZADDs to delayed sorted set (not LPUSH to queue), sets status='delayed' in hash. (b) Scheduler promotes: seed a delayed job with score in the past, run one scheduler tick, verify job is now in queue list with status='pending'. (c) Priority routing: enqueue with priority='high' pushes to nexus:queue:{name}:high, 'low' to nexus:queue:{name}:low. (d) Weighted pull: mock multiple priority queues with jobs, verify worker pulls in weighted order. (e) Cron scheduling: CronManager.addJob stores def and schedules, verify ZADD score matches next cron occurrence. (f) Cron re-scheduling: after a cron job fires (scheduler tick), verify new score is the following occurrence. (g) Rate limiter logic: test the checkLimitFallback method - first call allowed, exhaust tokens, next call denied with correct retryAfterMs. (h) Retry uses delayed set: when a job fails with retries remaining, verify ZADD to delayed set (not setTimeout). Test the worker's handleFailure path. For rate limiter Lua tests, test the logic function directly (not via eval, since ioredis-mock does not support it).",
+    "Step 15: Ensure all existing phase1 and phase2 tests still pass. The retry tests in phase2.test.ts that rely on setTimeout + vi.advanceTimersByTime will need to be updated since retry now uses the delayed sorted set instead. Update those tests to verify ZADD to the delayed set rather than timer advancement."
+  ],
+  "acceptance_criteria": [
+    "npm run build succeeds with no TypeScript errors across all workspaces",
+    "npm test passes all tests (existing phase1/phase2 tests + new phase3 tests)",
+    "Delayed job enqueue writes to sorted set nexus:delayed:{queue} with correct score, not to the queue list",
+    "Scheduler promotes jobs from delayed set to queue list when score <= now",
+    "Priority enqueue routes to correct priority-specific Redis list",
+    "Worker pulls jobs respecting weighted fair queuing (high:6, normal:3, low:1)",
+    "CronManager stores cron definitions and schedules next occurrence in sorted set",
+    "Rate limiter token bucket correctly allows/denies and returns retry-after time",
+    "Retry logic in handleFailure uses ZADD to delayed set instead of setTimeout",
+    "New Redis keys are defined in shared/src/keys.ts",
+    "SQL migration 003_scheduling.sql adds priority and delayed_until columns",
+    "cron-parser is installed in worker workspace"
+  ],
+  "verification": [
+    "Run 'npm run build' and confirm exit code 0 with no errors",
+    "Run 'npm test' and confirm all tests pass (phase1 + phase2 + phase3)"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

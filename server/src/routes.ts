@@ -19,6 +19,8 @@ const enqueueBodySchema = z.object({
   queue: z.string().min(1).optional(),
   maxAttempts: z.number().int().positive().optional(),
   idempotencyKey: z.string().min(1).optional(),
+  delay: z.number().int().nonnegative().optional(),
+  priority: z.enum(['high', 'normal', 'low']).optional(),
 });
 
 export function buildRouter(deps: { producer: Producer; pg: Pool }): Router {
@@ -33,10 +35,12 @@ export function buildRouter(deps: { producer: Producer; pg: Pool }): Router {
       const body = enqueueBodySchema.parse(req.body);
       // zod gives us only what's defined; spread to drop undefined keys
       // so we don't pass "queue: undefined" when caller omitted it.
-      const opts: { queue?: string; maxAttempts?: number; idempotencyKey?: string } = {};
+      const opts: { queue?: string; maxAttempts?: number; idempotencyKey?: string; delay?: number; priority?: 'high' | 'normal' | 'low' } = {};
       if (body.queue !== undefined) opts.queue = body.queue;
       if (body.maxAttempts !== undefined) opts.maxAttempts = body.maxAttempts;
       if (body.idempotencyKey !== undefined) opts.idempotencyKey = body.idempotencyKey;
+      if (body.delay !== undefined) opts.delay = body.delay;
+      if (body.priority !== undefined) opts.priority = body.priority;
 
       const jobId = await deps.producer.enqueue(body.jobName, body.payload, opts);
       res.status(201).json({ jobId });

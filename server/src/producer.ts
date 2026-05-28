@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   redisKeys,
   insertPendingJob,
+  insertDelayedJob,
   type EnqueueOptions,
   type Pool,
 } from '@nexusqueue/shared';
@@ -69,52 +70,90 @@ export class Producer {
     const id = uuidv4();
     const queueName = options.queue ?? DEFAULT_QUEUE;
     const maxAttempts = options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS;
+    const priority = options.priority ?? 'normal';
+    const delay = options.delay;
 
-    // (A) Durable audit row first.
-    const insertParams: {
-      id: string;
-      queueName: string;
-      jobName: string;
-      payload: TPayload;
-      maxAttempts: number;
-      idempotencyKey?: string;
-    } = {
-      id,
-      queueName,
-      jobName,
-      payload,
-      maxAttempts,
-    };
-    if (options.idempotencyKey) {
-      insertParams.idempotencyKey = options.idempotencyKey;
-    }
-    await insertPendingJob(this.deps.pg, insertParams);
-
-    // (B) Make the job visible to workers.
-    //   - SADD registers the queue so /queues can list it.
-    //   - HSET stores the runtime job hash workers will read on dequeue.
-    //   - LPUSH puts the job on the FIFO list (workers BRPOP from the right).
-    //
-    // We use a MULTI so all three Redis writes either succeed or fail
-    // together - keeps Redis state internally consistent even on crash.
     const nowIso = new Date().toISOString();
-    const multi = this.deps.redis.multi();
-    multi.sadd(redisKeys.queueRegistry, queueName);
-    multi.hset(redisKeys.job(id), {
-      id,
-      queueName,
-      jobName,
-      payload: JSON.stringify(payload),
-      status: 'pending',
-      attempts: '0',
-      maxAttempts: String(maxAttempts),
-      errorMessage: '',
-      createdAt: nowIso,
-      startedAt: '',
-      completedAt: '',
-    });
-    multi.lpush(redisKeys.queue(queueName), id);
-    await multi.exec();
+
+    if (delay && delay > 0) {
+      // Delayed job path: ZADD to sorted set, don't push to queue list.
+      const dueAt = Date.now() + delay;
+
+      // (A) Durable audit row first.
+      await insertDelayedJob(this.deps.pg, {
+        id,
+        queueName,
+        jobName,
+        payload,
+        maxAttempts,
+        delayedUntil: new Date(dueAt),
+        priority,
+      });
+
+      // (B) Redis: register queue, store hash, ZADD to delayed set.
+      const multi = this.deps.redis.multi();
+      multi.sadd(redisKeys.queueRegistry, queueName);
+      multi.hset(redisKeys.job(id), {
+        id,
+        queueName,
+        jobName,
+        payload: JSON.stringify(payload),
+        status: 'delayed',
+        attempts: '0',
+        maxAttempts: String(maxAttempts),
+        priority,
+        errorMessage: '',
+        createdAt: nowIso,
+        startedAt: '',
+        completedAt: '',
+      });
+      multi.zadd(redisKeys.delayed(queueName), String(dueAt), id);
+      await multi.exec();
+    } else {
+      // Immediate job path (original behavior with priority routing).
+      const insertParams: {
+        id: string;
+        queueName: string;
+        jobName: string;
+        payload: TPayload;
+        maxAttempts: number;
+        idempotencyKey?: string;
+      } = {
+        id,
+        queueName,
+        jobName,
+        payload,
+        maxAttempts,
+      };
+      if (options.idempotencyKey) {
+        insertParams.idempotencyKey = options.idempotencyKey;
+      }
+      await insertPendingJob(this.deps.pg, insertParams);
+
+      // Determine which list to push to based on priority.
+      const targetList = priority === 'normal'
+        ? redisKeys.queue(queueName)
+        : redisKeys.queuePriority(queueName, priority);
+
+      const multi = this.deps.redis.multi();
+      multi.sadd(redisKeys.queueRegistry, queueName);
+      multi.hset(redisKeys.job(id), {
+        id,
+        queueName,
+        jobName,
+        payload: JSON.stringify(payload),
+        status: 'pending',
+        attempts: '0',
+        maxAttempts: String(maxAttempts),
+        priority,
+        errorMessage: '',
+        createdAt: nowIso,
+        startedAt: '',
+        completedAt: '',
+      });
+      multi.lpush(targetList, id);
+      await multi.exec();
+    }
 
     // Set idempotency key with 24h TTL after successful enqueue.
     if (options.idempotencyKey) {

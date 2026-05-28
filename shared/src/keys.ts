@@ -18,6 +18,9 @@ export const redisKeys = {
   /** List of pending job IDs for a queue (FIFO via LPUSH/BRPOP). */
   queue: (name: string) => `${PREFIX}:queue:${name}`,
 
+  /** Priority-specific queue list. */
+  queuePriority: (name: string, priority: string) => `${PREFIX}:queue:${name}:${priority}`,
+
   /** Hash holding the full job state. */
   job: (id: string) => `${PREFIX}:job:${id}`,
 
@@ -32,4 +35,16 @@ export const redisKeys = {
 
   /** Idempotency lookup key. */
   idempotency: (key: string) => `${PREFIX}:idem:${key}`,
+
+  /** Sorted set for delayed jobs (score = timestamp when job becomes due). */
+  delayed: (queueName: string) => `${PREFIX}:delayed:${queueName}`,
+
+  /** Sorted set holding cron schedule entries (score = next run timestamp). */
+  cronSchedule: `${PREFIX}:cron:schedule`,
+
+  /** Hash holding cron job definition by cronId. */
+  cronDef: (cronId: string) => `${PREFIX}:cron:def:${cronId}`,
+
+  /** Hash holding rate limit state for a queue. */
+  rateLimit: (queueName: string) => `${PREFIX}:ratelimit:${queueName}`,
 } as const;
