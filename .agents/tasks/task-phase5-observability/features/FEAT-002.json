@@ -2,7 +2,7 @@
   "id": "FEAT-002",
   "type": "feat",
   "description": "React Dashboard workspace (Part C) - a new dashboard/ workspace with React 18, TypeScript, Vite, Tailwind CSS, Recharts, and react-router-dom. Includes all pages/components for queue overview, live job stream, job detail, DLQ inspector, throughput chart, and workers panel.",
-  "status": "pending",
+  "status": "in_progress",
   "steps": [
     "Step 1: Create the dashboard/ directory structure as specified. Create dashboard/package.json with name '@nexusqueue/dashboard', type 'module', dependencies: react, react-dom, react-router-dom, recharts. devDependencies: @types/react, @types/react-dom, typescript, vite, @vitejs/plugin-react, tailwindcss, postcss, autoprefixer. Scripts: dev (vite), build (vite build), preview (vite preview).",
     "Step 2: Add 'dashboard' to root package.json workspaces array. Run npm install from root to link the new workspace.",

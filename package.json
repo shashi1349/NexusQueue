@@ -7,10 +7,11 @@
   "workspaces": [
     "shared",
     "server",
-    "worker"
+    "worker",
+    "dashboard"
   ],
   "scripts": {
-    "build": "npm run build --workspace @nexusqueue/shared && npm run build --workspace @nexusqueue/server && npm run build --workspace @nexusqueue/worker",
+    "build": "npm run build --workspace @nexusqueue/shared && npm run build --workspace @nexusqueue/server && npm run build --workspace @nexusqueue/worker && npm run build --workspace @nexusqueue/dashboard",
     "typecheck": "npm run build --workspace @nexusqueue/shared && npm run typecheck --workspaces --if-present",
     "dev:server": "npm run dev --workspace @nexusqueue/server",
     "dev:worker": "npm run dev --workspace @nexusqueue/worker",
