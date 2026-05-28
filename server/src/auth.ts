@@ -1,5 +1,21 @@
 import type { Request, Response, NextFunction } from 'express';
+import crypto from 'node:crypto';
 import jwt from 'jsonwebtoken';
+
+/**
+ * Constant-time string comparison. Returns true if a === b without leaking
+ * timing information about which characters differ.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) {
+    // Compare against self to keep constant time regardless of length mismatch
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 /**
  * API Key middleware. If API_KEYS env var is set, requires a valid key
@@ -29,7 +45,19 @@ export function apiKeyMiddleware(req: Request, res: Response, next: NextFunction
     key = xApiKey;
   }
 
-  if (!key || !validKeys.includes(key)) {
+  if (!key) {
+    res.status(401).json({ error: 'unauthorized', message: 'Invalid or missing API key' });
+    return;
+  }
+
+  let matched = false;
+  for (const validKey of validKeys) {
+    if (timingSafeEqual(key, validKey)) {
+      matched = true;
+    }
+  }
+
+  if (!matched) {
     res.status(401).json({ error: 'unauthorized', message: 'Invalid or missing API key' });
     return;
   }
@@ -57,7 +85,7 @@ export function jwtMiddleware(req: Request, res: Response, next: NextFunction): 
 
   const token = authHeader.slice(7);
   try {
-    jwt.verify(token, secret);
+    jwt.verify(token, secret, { algorithms: ['HS256'] });
     next();
   } catch {
     res.status(401).json({ error: 'unauthorized', message: 'Invalid token' });
@@ -86,7 +114,7 @@ export function loginHandler(req: Request, res: Response): void {
     return;
   }
 
-  if (username !== dashUser || password !== dashPass) {
+  if (!timingSafeEqual(username, dashUser) || !timingSafeEqual(password, dashPass)) {
     res.status(401).json({ error: 'unauthorized', message: 'Invalid credentials' });
     return;
   }

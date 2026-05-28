@@ -11,6 +11,10 @@ export const jobsEnqueuedTotal = new Counter({
   registers: [register],
 });
 
+// TODO: Worker-side metrics (jobsCompletedTotal, jobsFailedTotal, jobsDlqTotal,
+// jobDurationSeconds, queueDepth, activeWorkers) require a Prometheus push gateway
+// or a per-worker /metrics endpoint, since workers run as separate processes and
+// cannot share the server's Prometheus registry.
 export const jobsCompletedTotal = new Counter({
   name: 'nexusqueue_jobs_completed_total',
   help: 'Total number of jobs completed',
