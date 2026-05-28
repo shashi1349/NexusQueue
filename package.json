@@ -1,0 +1,33 @@
+{
+  "name": "nexusqueue",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NexusQueue — a distributed task queue engine (BullMQ/Celery-style) built on Redis + Postgres.",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "worker"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @nexusqueue/shared && npm run build --workspace @nexusqueue/server && npm run build --workspace @nexusqueue/worker",
+    "typecheck": "npm run build --workspace @nexusqueue/shared && npm run typecheck --workspaces --if-present",
+    "dev:server": "npm run dev --workspace @nexusqueue/server",
+    "dev:worker": "npm run dev --workspace @nexusqueue/worker",
+    "smoke": "tsx examples/smoke.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:init": "psql \"$DATABASE_URL\" -f infra/postgres/001_init.sql"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "dotenv": "^17.4.2",
+    "ioredis-mock": "^8.13.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^4.1.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
