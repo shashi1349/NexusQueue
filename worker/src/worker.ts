@@ -306,6 +306,14 @@ export class Worker {
       startedAt: new Date().toISOString(),
       attempts: String(Number(hash.attempts ?? '0') + 1),
     });
+    // Publish started event for live dashboard.
+    await this.deps.redis.publish(redisKeys.events, JSON.stringify({
+      type: 'job.started',
+      jobId,
+      jobName,
+      queueName,
+      timestamp: Date.now(),
+    })).catch(() => {});
 
     if (!handler) {
       const msg = `no handler registered for jobName="${jobName}"`;
@@ -345,6 +353,15 @@ export class Worker {
     });
     // ACK: remove from processing list.
     await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
+    // Publish event for live dashboard stream.
+    const hash = await this.deps.redis.hgetall(redisKeys.job(jobId));
+    await this.deps.redis.publish(redisKeys.events, JSON.stringify({
+      type: 'job.completed',
+      jobId,
+      jobName: hash.jobName ?? '',
+      queueName: hash.queueName ?? this.deps.queue,
+      timestamp: Date.now(),
+    })).catch(() => {}); // non-critical, don't crash on publish failure
   }
 
   private async handleFailure(jobId: string, errorMessage: string): Promise<void> {
@@ -365,6 +382,15 @@ export class Worker {
       await this.deps.redis.lpush(redisKeys.dlq(queueName), jobId);
       // Remove from processing list after durable write.
       await this.deps.redis.lrem(redisKeys.processing(this.deps.workerId), 1, jobId);
+      // Publish DLQ event for live dashboard.
+      await this.deps.redis.publish(redisKeys.events, JSON.stringify({
+        type: 'job.dlq',
+        jobId,
+        jobName: hash.jobName ?? '',
+        queueName,
+        timestamp: Date.now(),
+        errorMessage,
+      })).catch(() => {});
     } else {
       // Retry path: ZADD to delayed sorted set with exponential backoff.
       // ZADD first so job is never lost if we crash between steps.
