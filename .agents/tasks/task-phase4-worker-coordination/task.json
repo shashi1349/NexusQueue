@@ -1,7 +1,14 @@
 {
   "task_id": "task-phase4-worker-coordination",
   "task_description": "Implement Phase 4 (Worker Coordination) of NexusQueue: worker heartbeats with TTL, stuck job detection via janitor process, graceful shutdown with drain logic, and configurable concurrency control per worker.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "verification": {
+    "build": "pass",
+    "tests": "pass",
+    "test_quality": "pass",
+    "docker_build": "skipped",
+    "summary": "npm run build succeeds (all 3 workspaces). npm test passes 61/61 tests (10 phase1 + 9 phase2 + 21 phase3 + 21 phase4). All phase4 tests exercise real logic: heartbeat key existence/TTL/timestamp, janitor dead-worker detection with re-enqueue, graceful shutdown cleanup, concurrent processing with max-concurrency tracking."
+  }
 }

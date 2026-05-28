@@ -197,7 +197,7 @@ export class Worker {
       try {
         // Only pull when we have available concurrency slots.
         if (this.activeJobs.size >= this.concurrency) {
-          await new Promise((r) => setTimeout(r, 50));
+          await Promise.race([...this.activeJobs]);
           continue;
         }
 

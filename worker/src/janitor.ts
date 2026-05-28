@@ -13,6 +13,7 @@ export interface JanitorDeps {
  */
 export class Janitor {
   private interval: ReturnType<typeof setInterval> | null = null;
+  private ticking = false;
   private readonly intervalMs: number;
   private readonly redis: Redis;
   private readonly pg: Pool;
@@ -25,7 +26,16 @@ export class Janitor {
 
   start(): void {
     this.interval = setInterval(() => {
-      void this.tick();
+      if (this.ticking) return;
+      this.ticking = true;
+      this.tick()
+        .catch((err: unknown) => {
+          // eslint-disable-next-line no-console
+          console.error('[janitor] tick failed:', err);
+        })
+        .finally(() => {
+          this.ticking = false;
+        });
     }, this.intervalMs);
   }
 
