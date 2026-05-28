@@ -2,7 +2,7 @@
   "id": "FEAT-001",
   "type": "feat",
   "description": "Implement all Phase 3 advanced scheduling features: delayed jobs with sorted sets, priority queues with weighted fair processing, recurring/cron jobs, rate limiting with token bucket, plus the scheduler process. Also update retry logic to use the delayed sorted set instead of setTimeout.",
-  "status": "in_progress",
+  "status": "completed",
   "steps": [
     "Step 1: Install cron-parser in the worker workspace: run 'npm install cron-parser --workspace @nexusqueue/worker'",
     "Step 2: Update shared/src/types.ts - Add 'delay?: number' and 'priority?: \"high\" | \"normal\" | \"low\"' to EnqueueOptions interface. Add Priority type. Update JobStatus to ensure 'delayed' is included (it already is). Add RateLimitConfig interface: { maxTokens: number; refillRate: number }.",
@@ -39,5 +39,5 @@
     "Run 'npm test' and confirm all tests pass (phase1 + phase2 + phase3)"
   ],
   "blocked_reason": null,
-  "findings": ""
+  "findings": "1. cron-parser v5 uses CronExpressionParser.parse() not parseExpression(). 2. ioredis-mock shares state across all instances in the same process - must call flushall() in beforeEach for test isolation. 3. exactOptionalPropertyTypes requires careful handling - cannot assign string|undefined to optional string property without explicit check."
 }
