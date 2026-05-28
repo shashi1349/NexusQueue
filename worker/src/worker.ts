@@ -11,6 +11,11 @@ import {
 import { HandlerRegistry, type JobHandler } from './handlers.js';
 import { RateLimiter } from './rate-limiter.js';
 
+// TODO: Phase 5 event emission - publish to `nexus:events` Redis channel on
+// each state transition (job.started, job.completed, job.failed, job.dlq).
+// The worker runs in a separate process and needs its own Redis publisher client
+// to emit events that the WebSocket event bus can relay to dashboard clients.
+
 /**
  * Worker -- the consumer side of NexusQueue.
  *

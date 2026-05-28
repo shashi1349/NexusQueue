@@ -124,6 +124,11 @@ export function buildRouter(deps: RouterDeps): Router {
       try {
         const name = req.params.name!;
         const status = req.query.status as string | undefined;
+        const validStatuses = ['pending', 'active', 'completed', 'failed', 'dlq', 'delayed'];
+        if (status && !validStatuses.includes(status)) {
+          res.status(400).json({ error: 'invalid_status', message: `status must be one of: ${validStatuses.join(', ')}` });
+          return;
+        }
         const limit = Math.min(Number(req.query.limit) || 50, 200);
         const offset = Number(req.query.offset) || 0;
 
@@ -233,7 +238,10 @@ export function buildRouter(deps: RouterDeps): Router {
     r.get('/queues/:name/dlq', async (req, res, next) => {
       try {
         const name = req.params.name!;
-        const jobIds = await redis.lrange(redisKeys.dlq(name), 0, -1);
+        const limit = Math.min(Number(req.query.limit) || 50, 200);
+        const offset = Number(req.query.offset) || 0;
+        const total = await redis.llen(redisKeys.dlq(name));
+        const jobIds = await redis.lrange(redisKeys.dlq(name), offset, offset + limit - 1);
         const jobs = await Promise.all(jobIds.map(async (id) => {
           const hash = await redis.hgetall(redisKeys.job(id));
           return {
@@ -250,7 +258,7 @@ export function buildRouter(deps: RouterDeps): Router {
             completedAt: hash.completedAt || null,
           };
         }));
-        res.json({ jobs });
+        res.json({ jobs, total });
       } catch (err) { next(err); }
     });
 
@@ -270,45 +278,50 @@ export function buildRouter(deps: RouterDeps): Router {
         }
 
         let requeued = 0;
+        let failed = 0;
         for (const id of jobIds) {
-          // Reset in Redis
-          await redis.hset(redisKeys.job(id), {
-            status: 'pending',
-            attempts: '0',
-            startedAt: '',
-            completedAt: '',
-            errorMessage: '',
-          });
+          try {
+            // Update Postgres first (durable store)
+            await markJobPendingForRetry(deps.pg, id);
 
-          // Remove from DLQ
-          await redis.lrem(redisKeys.dlq(name), 1, id);
-
-          // Push to queue
-          const hash = await redis.hgetall(redisKeys.job(id));
-          const priority = hash.priority ?? 'normal';
-          const targetList = priority === 'normal'
-            ? redisKeys.queue(name)
-            : redisKeys.queuePriority(name, priority);
-          await redis.lpush(targetList, id);
-
-          // Update Postgres
-          await markJobPendingForRetry(deps.pg, id);
-
-          // Publish event
-          if (deps.eventBus) {
-            await deps.eventBus.publish({
-              type: 'job.retried',
-              jobId: id,
-              jobName: hash.jobName ?? '',
-              queueName: name,
-              timestamp: Date.now(),
+            // Reset in Redis
+            await redis.hset(redisKeys.job(id), {
+              status: 'pending',
+              attempts: '0',
+              startedAt: '',
+              completedAt: '',
+              errorMessage: '',
             });
-          }
 
-          requeued++;
+            // Remove from DLQ
+            await redis.lrem(redisKeys.dlq(name), 1, id);
+
+            // Push to queue
+            const hash = await redis.hgetall(redisKeys.job(id));
+            const priority = hash.priority ?? 'normal';
+            const targetList = priority === 'normal'
+              ? redisKeys.queue(name)
+              : redisKeys.queuePriority(name, priority);
+            await redis.lpush(targetList, id);
+
+            // Publish event
+            if (deps.eventBus) {
+              await deps.eventBus.publish({
+                type: 'job.retried',
+                jobId: id,
+                jobName: hash.jobName ?? '',
+                queueName: name,
+                timestamp: Date.now(),
+              });
+            }
+
+            requeued++;
+          } catch {
+            failed++;
+          }
         }
 
-        res.json({ requeued });
+        res.json({ requeued, failed });
       } catch (err) { next(err); }
     });
   }

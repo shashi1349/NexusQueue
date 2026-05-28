@@ -1,3 +1,4 @@
+import http from 'node:http';
 import express from 'express';
 import cors from 'cors';
 import { createPgPool, createRedisClient } from '@nexusqueue/shared';
@@ -11,13 +12,24 @@ async function main(): Promise<void> {
   const redis = createRedisClient(cfg.redisUrl);
   const pg = createPgPool(cfg.databaseUrl);
 
-  const producer = new Producer({ redis, pg });
-
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
 
-  // Centralized error handler. Phase 6 will swap to pino.
+  // Create HTTP server (needed by WebSocket event bus before listen)
+  const server = http.createServer(app);
+
+  // Create a dedicated subscriber Redis client for PUB/SUB
+  const subscriberRedis = createRedisClient(cfg.redisUrl);
+  const eventBus = new NexusEventBus(server, subscriberRedis, redis);
+
+  // Create producer with event bus passed via constructor (type-safe)
+  const producer = new Producer({ redis, pg, eventBus });
+
+  // Mount routes
+  app.use(buildRouter({ producer, pg, redis, eventBus }));
+
+  // Centralized error handler - must come AFTER routes. Phase 6 will swap to pino.
   app.use(
     (
       err: unknown,
@@ -31,20 +43,10 @@ async function main(): Promise<void> {
     },
   );
 
-  const server = app.listen(cfg.port, cfg.host, () => {
+  server.listen(cfg.port, cfg.host, () => {
     // eslint-disable-next-line no-console
     console.log(`[server] listening on http://${cfg.host}:${cfg.port}`);
   });
-
-  // Create a dedicated subscriber Redis client for PUB/SUB
-  const subscriberRedis = createRedisClient(cfg.redisUrl);
-  const eventBus = new NexusEventBus(server, subscriberRedis, redis);
-
-  // Pass eventBus to producer so it can emit job.created events
-  (producer as any).deps.eventBus = eventBus;
-
-  // Mount routes after event bus is ready
-  app.use(buildRouter({ producer, pg, redis, eventBus }));
 
   // Graceful shutdown so docker stop / Ctrl+C don't drop in-flight requests.
   const shutdown = async (signal: string): Promise<void> => {
