@@ -23,6 +23,15 @@ async function main(): Promise<void> {
   const redis = createRedisClient(cfg.redisUrl);
   const pg = createPgPool(cfg.databaseUrl);
 
+  // Wait for Redis connection before issuing commands.
+  // ioredis with enableOfflineQueue=false rejects commands before TCP handshake.
+  await new Promise<void>((resolve, reject) => {
+    if (redis.status === 'ready') { resolve(); return; }
+    redis.once('ready', resolve);
+    redis.once('error', reject);
+  });
+  logger.info('redis connected');
+
   const worker = new Worker({
     redis,
     pg,

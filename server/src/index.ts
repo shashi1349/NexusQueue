@@ -19,6 +19,13 @@ async function main(): Promise<void> {
   const redis = createRedisClient(cfg.redisUrl);
   const pg = createPgPool(cfg.databaseUrl);
 
+  // Wait for Redis connection before issuing commands.
+  await new Promise<void>((resolve, reject) => {
+    if (redis.status === 'ready') { resolve(); return; }
+    redis.once('ready', resolve);
+    redis.once('error', reject);
+  });
+
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: '1mb' }));
