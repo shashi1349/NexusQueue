@@ -1,7 +1,8 @@
 {
   "task_id": "task-phase5-observability",
   "task_description": "Implement Phase 5 Observability Dashboard for NexusQueue: Extended REST API endpoints (GET /queues, GET /queues/:name/jobs, POST /jobs/:id/retry, GET /workers, GET /queues/:name/dlq, POST /queues/:name/dlq/requeue), WebSocket event bus with Redis PUB/SUB, and a React dashboard workspace with Vite, Tailwind, Recharts.",
-  "status": "in_progress",
+  "status": "completed",
   "feature_order": ["FEAT-001", "FEAT-002"],
-  "blocked_reason": null
+  "blocked_reason": null,
+  "review_fixes_applied": "2025-01-15-110000-review.md: Fixed error handler ordering (after routes), removed EventBus monkey-patch (constructor injection), added status query param validation, added DLQ pagination (limit/offset/total), added per-job error tracking in bulk requeue, added worker TODO for event emission. All 75 tests passing."
 }
