@@ -1,0 +1,27 @@
+{
+  "id": "FEAT-002",
+  "type": "chore",
+  "description": "Create Dockerfiles for server, worker, and dashboard services plus root .dockerignore and production docker-compose",
+  "status": "pending",
+  "steps": [
+    "Create .dockerignore in root with: node_modules, .git, dist, *.log, .env*, .volumes, coverage, .agents, k6, tests, examples, .github",
+    "Create server/Dockerfile as multi-stage build: Stage 1 (builder) uses node:22-alpine, copies root package.json, package-lock.json, shared/package.json, server/package.json, worker/package.json, dashboard/package.json, runs npm ci --workspace @nexusqueue/shared --workspace @nexusqueue/server, copies shared/ and server/ source, runs npm run build --workspace @nexusqueue/shared && npm run build --workspace @nexusqueue/server. Stage 2 (runtime) uses node:22-alpine, copies node_modules and dist from builder for shared and server, exposes 3000, adds HEALTHCHECK using wget to /health, CMD [\"node\", \"server/dist/index.js\"]",
+    "Create worker/Dockerfile as multi-stage build: same builder pattern as server but for worker workspace. Stage 2 copies node_modules and dist, no EXPOSE, sets ENV for WORKER_QUEUE=default WORKER_CONCURRENCY=5, CMD [\"node\", \"worker/dist/index.js\"]. No HEALTHCHECK since worker only connects outbound.",
+    "Create dashboard/Dockerfile as multi-stage build: Stage 1 uses node:22-alpine, copies dashboard/ package files, runs npm ci, copies source, runs npm run build (vite build). Stage 2 uses nginx:alpine, copies dist/ from builder to /usr/share/nginx/html, creates nginx.conf for SPA routing (try_files $uri $uri/ /index.html), exposes 80",
+    "Create docker-compose.prod.yml with services: redis (redis:7-alpine, healthcheck, volume, internal network only), postgres (postgres:16-alpine, env from .env, healthcheck, volume, init SQL mounted, internal network only), server (build context server/, depends_on redis+postgres with condition service_healthy, env_file .env, ports 3000:3000, both networks), worker (build context worker/, deploy replicas 3, depends_on redis+postgres with condition service_healthy, env_file .env, internal network only), dashboard (build context dashboard/, ports 80:80, public network only). Define networks: internal (driver bridge) and public (driver bridge). Define volumes: redis-data, postgres-data."
+  ],
+  "acceptance_criteria": [
+    ".dockerignore exists at root with sensible exclusions",
+    "server/Dockerfile is a valid multi-stage Dockerfile with HEALTHCHECK and EXPOSE 3000",
+    "worker/Dockerfile is a valid multi-stage Dockerfile with no EXPOSE, ENV vars for WORKER_QUEUE/WORKER_CONCURRENCY/WORKER_ID",
+    "dashboard/Dockerfile is a valid multi-stage Dockerfile using nginx:alpine for the final stage with SPA routing config",
+    "docker-compose.prod.yml defines all 5 services with proper networking, health checks, and volume configuration",
+    "Existing build and tests still pass"
+  ],
+  "verification": [
+    "Run npm run build to confirm existing code still builds",
+    "Run npm test to confirm all 92 tests still pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

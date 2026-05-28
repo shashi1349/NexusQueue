@@ -1,0 +1,25 @@
+{
+  "id": "FEAT-001",
+  "type": "chore",
+  "description": "Create k6 load test scripts and shared helpers for benchmarking the NexusQueue server",
+  "status": "in_progress",
+  "steps": [
+    "Create k6/helpers.js with shared utilities: randomPayload() generating random JSON objects with various field types, randomQueueName() picking from a pool of queue names, randomPriority() returning weighted random priority (60% normal, 30% high, 10% low), and BASE_URL constant reading from __ENV.BASE_URL or defaulting to http://localhost:3000",
+    "Create k6/enqueue-load.js as the main load test script: import http from 'k6/http' and { check, sleep } from 'k6'; define options with stages (ramp to 100 VUs over 30s, sustain 2min, ramp down 10s); set thresholds (http_req_duration p(95) < 100ms, http_req_failed rate < 0.01); in default function POST to ${BASE_URL}/jobs with random jobName, payload, and queue; use check() to verify 201 response; add brief sleep(0.1) between iterations",
+    "Create k6/scenarios.js with three named scenarios using the executor framework: 'burst' scenario using shared-iterations executor (1000 iterations, 50 VUs, maxDuration 10s), 'sustained' scenario using constant-arrival-rate (rate 500 per second, duration 5m, preAllocatedVUs 100, maxVUs 200), 'mixed_priorities' scenario using ramping-arrival-rate for mixed priority load; each scenario function posts jobs with appropriate priority distribution",
+    "Add a 'Load Testing' section to README.md with instructions on installing k6, running the basic load test (k6 run k6/enqueue-load.js), running scenarios (k6 run k6/scenarios.js), and how to point at a custom URL via K6_BASE_URL env var"
+  ],
+  "acceptance_criteria": [
+    "k6/helpers.js exports randomPayload, randomQueueName, randomPriority, BASE_URL",
+    "k6/enqueue-load.js defines stages (ramp 30s, sustain 2m, ramp down 10s) and thresholds (p95 < 100ms, error < 1%)",
+    "k6/scenarios.js defines three scenarios: burst, sustained, mixed_priorities",
+    "README.md contains Load Testing section with k6 instructions",
+    "All files use standard k6 JavaScript (not TypeScript), importing from 'k6' and 'k6/http'"
+  ],
+  "verification": [
+    "Run npm run build to confirm existing code still builds",
+    "Run npm test to confirm all 92 tests still pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-003",
+  "type": "chore",
+  "description": "Create GitHub Actions CI workflow with lint/typecheck, test, and docker-build jobs",
+  "status": "pending",
+  "steps": [
+    "Create .github/workflows/ directory structure",
+    "Create .github/workflows/ci.yml with: name 'CI', triggers on push to main and pull_request. Three jobs: (1) 'lint-typecheck' - runs-on ubuntu-latest, uses actions/checkout, actions/setup-node@v4 with node-version 22, caches node_modules via actions/cache with key based on package-lock.json hash, runs npm ci, runs npm run build. (2) 'test' - runs-on ubuntu-latest, services: redis (image redis:7-alpine, ports 6379:6379, options --health-cmd 'redis-cli ping' --health-interval 10s --health-timeout 5s --health-retries 5) and postgres (image postgres:16-alpine, env POSTGRES_USER/PASSWORD/DB, ports 5432:5432, options with health-cmd), uses checkout/setup-node/cache same as above, runs npm ci, runs npm run build, runs npm test with env vars REDIS_URL and DATABASE_URL pointing to localhost services. (3) 'docker-build' - runs-on ubuntu-latest, uses checkout, builds each Dockerfile with docker build -f server/Dockerfile ., docker build -f worker/Dockerfile ., docker build -f dashboard/Dockerfile dashboard/"
+  ],
+  "acceptance_criteria": [
+    ".github/workflows/ci.yml exists with valid YAML syntax",
+    "CI has three jobs: lint-typecheck, test, docker-build",
+    "test job defines redis and postgres as GitHub Actions services with health checks",
+    "docker-build job builds all three Dockerfiles",
+    "Node.js 22 is used across all jobs",
+    "node_modules caching is configured via actions/cache"
+  ],
+  "verification": [
+    "Run npm run build to confirm existing code still builds",
+    "Run npm test to confirm all 92 tests still pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

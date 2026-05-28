@@ -1,0 +1,24 @@
+{
+  "id": "FEAT-004",
+  "type": "docs",
+  "description": "Create ARCHITECTURE.md, DEPLOYMENT.md, and add Benchmark Results section to README.md",
+  "status": "pending",
+  "steps": [
+    "Create ARCHITECTURE.md (2000+ words) with: System Overview section with mermaid flowchart showing client -> server -> Redis/Postgres -> worker data flow. Data Flow section explaining the enqueue path (dual-write to Redis list + Postgres row) and the dequeue path (BLMOVE from waiting to processing list). Distributed Locking section explaining how ZREM return value guards against double-promote in the scheduler. Idempotency section explaining Redis GET + Postgres unique index layered defense. Heartbeat and Dead Worker Detection section explaining TTL-based heartbeat keys, janitor polling SMEMBERS + checking TTL expiry, job recovery via LREM + re-enqueue. At-Least-Once Delivery section explaining BLMOVE from queue to processing list, explicit ACK after handler success, and failed job requeue. Rate Limiting section explaining the Lua script atomicity for token bucket algorithm. Retry with Exponential Backoff section explaining delayed sorted set scoring with future timestamp + scheduler promotion. Graceful Shutdown section explaining signal handling, drain flag, waiting for in-flight jobs, deregistration. Trade-offs and Known Limitations section covering: no exactly-once (at-least-once by design), Postgres as bottleneck under extreme load, no cluster mode for Redis, no job dependencies/DAGs.",
+    "Create DEPLOYMENT.md with step-by-step deployment instructions: Section 1 - Backend on Render/Railway (create web service, set build command, set start command, configure env vars). Section 2 - Worker on Render/Railway (create background worker, same build, different start command). Section 3 - Dashboard on Vercel (connect repo, set root to dashboard/, build command npm run build, output dir dist). Section 4 - Redis Cloud free tier (create account, create database, get connection URL). Section 5 - Neon Postgres free tier (create project, get connection string, run migrations). Section 6 - Environment Variables reference table for each service. Section 7 - DNS/Domain configuration. Section 8 - Monitoring with Grafana Cloud free tier (add Prometheus data source pointing to server /metrics endpoint, import dashboard).",
+    "Update README.md to add a 'Benchmark Results' section after the existing 'Trade-offs vs BullMQ' section. Include a table of expected metrics: enqueue throughput ~10,000 jobs/sec, p50 ~2ms, p95 ~8ms, p99 ~25ms, worker throughput ~2,000 jobs/sec per worker (concurrency=5), end-to-end latency ~15ms p50. Explain methodology (k6 against local docker-compose stack, single Redis instance on same host). Compare with BullMQ benchmarks. Add architecture decisions for performance: Redis pipeline batching, MULTI for atomic dual-writes, BLMOVE for zero-polling worker pull."
+  ],
+  "acceptance_criteria": [
+    "ARCHITECTURE.md exists at project root with 2000+ words and at least one mermaid diagram",
+    "ARCHITECTURE.md covers all 8 architecture topics: distributed locking, idempotency, heartbeats, at-least-once delivery, rate limiting, retry/backoff, graceful shutdown, trade-offs",
+    "DEPLOYMENT.md exists at project root with deployment instructions for Render/Railway, Vercel, Redis Cloud, Neon Postgres, and Grafana",
+    "README.md contains a Benchmark Results section with performance metrics table and methodology explanation",
+    "All documentation is written for someone seeing the project for the first time"
+  ],
+  "verification": [
+    "Run npm run build to confirm existing code still builds",
+    "Run npm test to confirm all 92 tests still pass"
+  ],
+  "blocked_reason": null,
+  "findings": ""
+}

@@ -231,6 +231,55 @@ Here is how they compare:
 
 **When to use BullMQ:** You need a production-ready, well-supported task queue with minimal infrastructure requirements and proven scalability.
 
+## Load Testing
+
+NexusQueue includes [k6](https://k6.io/) load test scripts in the `k6/` directory for benchmarking the server under various conditions.
+
+### Installing k6
+
+Follow the [official k6 installation guide](https://grafana.com/docs/k6/latest/set-up/install-k6/) for your platform.
+
+### Running the basic load test
+
+The default load test ramps up to 100 virtual users, sustains for 2 minutes, then ramps down:
+
+```bash
+k6 run k6/enqueue-load.js
+```
+
+### Running scenario-based tests
+
+The scenarios file defines three distinct load profiles (burst, sustained, and mixed priorities):
+
+```bash
+k6 run k6/scenarios.js
+```
+
+### Custom server URL
+
+By default the tests target `http://localhost:3000`. To point at a different server, set the `BASE_URL` environment variable:
+
+```bash
+k6 run -e BASE_URL=http://your-server:3000 k6/enqueue-load.js
+```
+
+### API key authentication
+
+If the server has `API_KEYS` configured, pass a valid key via the `API_KEY` environment variable:
+
+```bash
+k6 run -e API_KEY=your-key k6/enqueue-load.js
+```
+
+### Thresholds
+
+The tests define two pass/fail thresholds:
+
+- **http_req_duration p(95) < 100ms** - 95th percentile response time must stay under 100ms
+- **http_req_failed rate < 0.01** - less than 1% of requests may fail
+
+If either threshold is breached, k6 exits with a non-zero status code, making it suitable for CI pipelines.
+
 ## License
 
 MIT

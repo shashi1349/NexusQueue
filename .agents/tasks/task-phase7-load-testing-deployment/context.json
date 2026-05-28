@@ -1,0 +1,32 @@
+{
+  "project_type": "Node.js TypeScript monorepo - distributed task queue engine (Express server, worker process, React dashboard)",
+  "language": "TypeScript (ESM)",
+  "build_system": "npm workspaces. Root package.json has workspaces: [shared, server, worker, dashboard]. Build order: shared -> server -> worker -> dashboard (sequential via root script).",
+  "test_framework": "Vitest with ioredis-mock. 92 tests across 6 phase test files in tests/. No external services needed for tests.",
+  "build_command": "npm run build",
+  "test_command": "npm test",
+  "verification_instructions": "1. Run npm run build and confirm exit code 0. 2. Run npm test and confirm 92 tests pass.",
+  "snapshot_or_generated_files": null,
+  "setup_instructions": "npm install && npm run build",
+  "environment_constraints": "INTEGRATIONS_ONLY network - cannot pull docker images, install packages from npm, or make external HTTP calls. Validation limited to AST checks (build/typecheck) on pre-installed node runtime. Docker build cannot be tested.",
+  "contribution_requirements": "Keep all 92 existing tests passing. ESM modules with type: module. Follow existing patterns in monorepo.",
+  "key_patterns": "Monorepo with shared types/utils re-exported from shared/src/index.ts. Server uses Express with buildRouter pattern. Worker is standalone process. Dashboard is Vite+React SPA. Config via environment variables per .env.example. Dev docker-compose.yml exists for Redis+Postgres.",
+  "relevant_files": [
+    "package.json",
+    "server/package.json",
+    "worker/package.json",
+    "dashboard/package.json",
+    "shared/package.json",
+    "docker-compose.yml",
+    ".env.example",
+    ".gitignore",
+    "README.md",
+    "server/src/index.ts",
+    "worker/src/index.ts",
+    "server/src/routes.ts",
+    "server/tsconfig.json",
+    "shared/tsconfig.json",
+    "dashboard/vite.config.ts"
+  ],
+  "directory_structure": "shared/ - types, Redis keys, ioredis+pg factories, logger. server/ - Producer SDK, Express REST API, WebSocket, metrics, auth. worker/ - BLMOVE pull loop, handler registry, scheduler, janitor. dashboard/ - React+Vite+Tailwind SPA. tests/ - Vitest suite (6 phase files). examples/ - smoke.ts. infra/postgres/ - SQL migrations."
+}
